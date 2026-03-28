@@ -2,7 +2,7 @@
 
 ## Overview
 
-All audio files are stored in AWS S3 (NOT Supabase Storage). Presigned URLs are stored in the database for faster referencing.
+All audio files are stored in AWS S3 (NOT Supabase Storage). Presigned URLs are stored in the database for faster referencing......
 
 ---
 
