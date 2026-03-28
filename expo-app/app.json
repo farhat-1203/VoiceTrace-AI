@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "VoiceTrace",
+    "slug": "voicetrace",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "sdkVersion": "54.0.0",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.khan.voicetrace"
+    }
+  }
+}
