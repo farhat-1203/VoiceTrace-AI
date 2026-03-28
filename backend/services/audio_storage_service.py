@@ -1,6 +1,9 @@
 """
-Audio Storage Service - Manages audio file uploads to S3 or Supabase Storage
+Audio Storage Service - Manages audio file uploads to AWS S3
 Links audio files to transcriptions and ledger entries with presigned URLs
+
+Note: Supabase Storage is NOT used. All audio files are stored in S3.
+Presigned URLs are stored in database for faster referencing.
 """
 from __future__ import annotations
 
@@ -13,21 +16,15 @@ from services.supabase_service import supabase_service
 
 
 class AudioStorageService:
-    """Handles audio file storage and presigned URL generation."""
+    """Handles audio file storage to S3 and presigned URL generation."""
 
-    BUCKET_NAME = "audio-recordings"
-    
     def __init__(self):
-        # Determine storage backend from environment
-        self.storage_backend: Literal["s3", "supabase"] = os.getenv("AUDIO_STORAGE_BACKEND", "supabase")
-        
-        if self.storage_backend == "s3":
-            self._init_s3()
-        else:
-            self._ensure_bucket()
+        # Only S3 backend is used (Supabase Storage is NOT used)
+        self.storage_backend = "s3"
+        self._init_s3()
     
     def _init_s3(self):
-        """Initialize S3 client if using S3 backend."""
+        """Initialize S3 client."""
         try:
             import boto3
             from botocore.config import Config
@@ -52,28 +49,6 @@ class AudioStorageService:
             logger.error(f"Failed to initialize S3: {e}")
             raise
 
-    def _ensure_bucket(self):
-        """Create the audio storage bucket if it doesn't exist."""
-        try:
-            if not supabase_service._client:
-                return
-            
-            # Check if bucket exists
-            buckets = supabase_service._client.storage.list_buckets()
-            bucket_names = [b.name for b in buckets]
-            
-            if self.BUCKET_NAME not in bucket_names:
-                logger.info(f"Creating Supabase Storage bucket: {self.BUCKET_NAME}")
-                supabase_service._client.storage.create_bucket(
-                    self.BUCKET_NAME,
-                    options={"public": False}  # Private bucket
-                )
-            else:
-                logger.info(f"Supabase Storage bucket '{self.BUCKET_NAME}' exists")
-                
-        except Exception as e:
-            logger.warning(f"Could not ensure bucket exists: {e}")
-
     def upload_audio(
         self,
         file_path: str,
@@ -81,7 +56,7 @@ class AudioStorageService:
         session_id: str,
     ) -> Optional[str]:
         """
-        Upload audio file to S3 or Supabase Storage.
+        Upload audio file to S3.
         
         Args:
             file_path: Local path to audio file
@@ -89,12 +64,9 @@ class AudioStorageService:
             session_id: Unique session identifier
         
         Returns:
-            Storage path or None on failure
+            S3 storage path (user_id/session_id.ext) or None on failure
         """
-        if self.storage_backend == "s3":
-            return self._upload_to_s3(file_path, user_id, session_id)
-        else:
-            return self._upload_to_supabase(file_path, user_id, session_id)
+        return self._upload_to_s3(file_path, user_id, session_id)
     
     def _upload_to_s3(
         self,
@@ -132,40 +104,6 @@ class AudioStorageService:
         except Exception as e:
             logger.error(f"S3 upload failed: {e}")
             return None
-    
-    def _upload_to_supabase(
-        self,
-        file_path: str,
-        user_id: str,
-        session_id: str,
-    ) -> Optional[str]:
-        """Upload audio file to Supabase Storage."""
-        try:
-            if not os.path.exists(file_path):
-                logger.error(f"Audio file not found: {file_path}")
-                return None
-            
-            # Generate storage path: user_id/session_id.ext
-            ext = os.path.splitext(file_path)[1]
-            storage_path = f"{user_id}/{session_id}{ext}"
-            
-            # Read file
-            with open(file_path, "rb") as f:
-                file_data = f.read()
-            
-            # Upload to Supabase Storage
-            result = supabase_service._client.storage.from_(self.BUCKET_NAME).upload(
-                path=storage_path,
-                file=file_data,
-                file_options={"content-type": self._get_mime_type(ext)}
-            )
-            
-            logger.info(f"Uploaded audio to Supabase Storage: {storage_path}")
-            return storage_path
-            
-        except Exception as e:
-            logger.error(f"Supabase upload failed: {e}")
-            return None
 
     def get_presigned_url(
         self,
@@ -173,19 +111,16 @@ class AudioStorageService:
         expires_in: int = 3600,  # 1 hour default
     ) -> Optional[str]:
         """
-        Generate a presigned URL for audio playback.
+        Generate a presigned URL for S3 audio playback.
         
         Args:
-            storage_path: Path in storage
-            expires_in: URL expiry time in seconds
+            storage_path: S3 path (user_id/session_id.ext)
+            expires_in: URL expiry time in seconds (default: 1 hour, max: 7 days)
         
         Returns:
             Presigned URL or None on failure
         """
-        if self.storage_backend == "s3":
-            return self._get_s3_presigned_url(storage_path, expires_in)
-        else:
-            return self._get_supabase_presigned_url(storage_path, expires_in)
+        return self._get_s3_presigned_url(storage_path, expires_in)
     
     def _get_s3_presigned_url(
         self,
@@ -205,28 +140,6 @@ class AudioStorageService:
             return url
         except Exception as e:
             logger.error(f"S3 presigned URL generation failed: {e}")
-            return None
-    
-    def _get_supabase_presigned_url(
-        self,
-        storage_path: str,
-        expires_in: int = 3600,
-    ) -> Optional[str]:
-        """Generate presigned URL for Supabase Storage object."""
-        try:
-            result = supabase_service._client.storage.from_(self.BUCKET_NAME).create_signed_url(
-                path=storage_path,
-                expires_in=expires_in
-            )
-            
-            if result and "signedURL" in result:
-                return result["signedURL"]
-            
-            logger.error(f"Failed to generate presigned URL for {storage_path}")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Presigned URL generation failed: {e}")
             return None
 
     def store_audio_segments(
@@ -311,13 +224,16 @@ class AudioStorageService:
         return mime_map.get(ext.lower(), "audio/mpeg")
 
     def delete_audio(self, storage_path: str) -> bool:
-        """Delete an audio file from storage."""
+        """Delete an audio file from S3."""
         try:
-            supabase_service._client.storage.from_(self.BUCKET_NAME).remove([storage_path])
-            logger.info(f"Deleted audio from storage: {storage_path}")
+            self.s3_client.delete_object(
+                Bucket=self.s3_bucket,
+                Key=storage_path
+            )
+            logger.info(f"Deleted audio from S3: {storage_path}")
             return True
         except Exception as e:
-            logger.error(f"Audio deletion failed: {e}")
+            logger.error(f"S3 deletion failed: {e}")
             return False
 
 

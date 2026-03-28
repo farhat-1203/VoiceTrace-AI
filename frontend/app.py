@@ -1,5 +1,5 @@
 """
-VoiceTrace AI — Streamlit Frontend
+VoiceTrace AI - Streamlit Frontend
 Auth: Supabase Auth (Google OAuth)
 All API calls include the user's Supabase access token.
 """
@@ -19,10 +19,7 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Page Config
-# ═══════════════════════════════════════════════════════════════════════
-
+# Page Config
 st.set_page_config(
     page_title="VoiceTrace AI",
     page_icon="🎙️",
@@ -30,10 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Custom CSS
-# ═══════════════════════════════════════════════════════════════════════
-
+# Custom CSS
 st.markdown(
     """
     <style>
@@ -41,7 +35,6 @@ st.markdown(
 
     .stApp { font-family: 'Inter', sans-serif; }
 
-    /* ── Hero ─────────────────────────────────────────────────── */
     .hero-title {
         font-size: 2.8rem; font-weight: 700;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
@@ -50,7 +43,6 @@ st.markdown(
     }
     .hero-subtitle { font-size: 1.1rem; color: #94a3b8; margin-top: 4px; margin-bottom: 24px; }
 
-    /* ── Auth Card ───────────────────────────────────────────── */
     .auth-card {
         background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
         border: 1px solid #334155; border-radius: 20px;
@@ -71,7 +63,6 @@ st.markdown(
     }
     .google-btn:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 
-    /* ── User Badge ──────────────────────────────────────────── */
     .user-badge {
         display: flex; align-items: center; gap: 8px;
         background: rgba(99,102,241,0.12);
@@ -80,7 +71,6 @@ st.markdown(
         font-size: 0.88rem; color: #a5b4fc;
     }
 
-    /* ── Cards ──────────────────────────────────────────────── */
     .result-card {
         background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
         border: 1px solid #334155; border-radius: 16px;
@@ -91,7 +81,6 @@ st.markdown(
     .result-card h3 { margin-top: 0; font-size: 1.1rem; font-weight: 600; }
     .result-card .content { font-size: 0.95rem; line-height: 1.6; color: #cbd5e1; }
 
-    /* ── Badges ─────────────────────────────────────────────── */
     .badge {
         display: inline-flex; align-items: center; gap: 6px;
         padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
@@ -101,7 +90,6 @@ st.markdown(
     .badge-important { background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
     .badge-routine   { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
 
-    /* ── Metric Cards ───────────────────────────────────────── */
     .metric-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
     .metric-card {
         flex: 1; min-width: 140px;
@@ -114,7 +102,6 @@ st.markdown(
     .value-green { color: #22c55e; } .value-red { color: #ef4444; }
     .value-blue  { color: #60a5fa; } .value-purple { color: #a78bfa; }
 
-    /* ── Memory ─────────────────────────────────────────────── */
     .memory-item {
         background: rgba(99,102,241,0.08); border-left: 3px solid #6366f1;
         border-radius: 0 8px 8px 0; padding: 12px 16px;
@@ -122,7 +109,6 @@ st.markdown(
     }
     .memory-score { font-size: 0.75rem; color: #818cf8; font-weight: 600; }
 
-    /* ── Sidebar ─────────────────────────────────────────────── */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
     }
@@ -137,10 +123,7 @@ st.markdown(
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Supabase client (anon key — used only on frontend for auth)
-# ═══════════════════════════════════════════════════════════════════════
-
+# Supabase client
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -148,10 +131,7 @@ def get_supabase() -> Client:
 supabase: Client = get_supabase()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Session helpers
-# ═══════════════════════════════════════════════════════════════════════
-
+# Session helpers
 def is_logged_in() -> bool:
     return "access_token" in st.session_state and bool(st.session_state["access_token"])
 
@@ -161,13 +141,9 @@ def get_auth_headers() -> dict:
 
 
 def handle_oauth_callback():
-    """
-    After Google redirects back, Streamlit url will have `?code=...`.  
-    We exchange the code for a session using Supabase.
-    """
+    """Handle OAuth callback after Google redirects back."""
     params = st.query_params
     
-    # Check for error from OAuth provider
     if params.get("error"):
         error_desc = params.get("error_description", "Unknown error")
         st.error(f"OAuth error: {error_desc}")
@@ -177,7 +153,6 @@ def handle_oauth_callback():
     code = params.get("code")
     if code and not is_logged_in():
         try:
-            # Try to exchange the code directly - Supabase handles PKCE internally
             response = supabase.auth.exchange_code_for_session({"auth_code": code})
             
             if response and response.user:
@@ -188,7 +163,6 @@ def handle_oauth_callback():
                     "name": (response.user.user_metadata or {}).get("full_name", ""),
                     "avatar": (response.user.user_metadata or {}).get("avatar_url", ""),
                 }
-                # Clean the URL so the code doesn't re-fire on refresh
                 st.query_params.clear()
                 st.rerun()
             else:
@@ -196,15 +170,12 @@ def handle_oauth_callback():
         except Exception as e:
             st.error(f"Login failed: {e}")
             logger.error(f"OAuth exchange error: {e}")
-            # Clear params to avoid retry loop
             st.query_params.clear()
 
 
 def do_login():
-    """Start Google OAuth — redirects user to Google consent screen."""
+    """Start Google OAuth."""
     try:
-        # Use explicit localhost URL for development
-        # In production, set FRONTEND_URL environment variable
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8501")
         
         result = supabase.auth.sign_in_with_oauth({
@@ -225,13 +196,6 @@ def do_login():
     except Exception as e:
         st.error(f"Could not initiate Google login: {e}")
         logger.error(f"OAuth initiation error: {e}")
-                f'<meta http-equiv="refresh" content="0; url={result.url}">',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.error("Failed to generate OAuth URL")
-    except Exception as e:
-        st.error(f"Could not initiate Google login: {e}")
 
 
 def do_logout():
@@ -244,18 +208,15 @@ def do_logout():
     st.rerun()
 
 
-# ─── Handle callback on page load ────────────────────────────────────
+# Handle callback on page load
 handle_oauth_callback()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Auth gate — show login screen if not logged in
-# ═══════════════════════════════════════════════════════════════════════
-
+# Auth gate
 if not is_logged_in():
     st.markdown('<h1 class="hero-title">🎙️ VoiceTrace AI</h1>', unsafe_allow_html=True)
     st.markdown(
-        '<p class="hero-subtitle">Voice-powered business intelligence — speak your day, get insights instantly.</p>',
+        '<p class="hero-subtitle">Voice-powered business intelligence - speak your day, get insights instantly.</p>',
         unsafe_allow_html=True,
     )
     st.markdown("<br>", unsafe_allow_html=True)
@@ -272,25 +233,18 @@ if not is_logged_in():
             """,
             unsafe_allow_html=True,
         )
-        if st.button("🔐  Sign in with Google", type="primary", use_container_width=True):
+        if st.button("Sign in with Google", type="primary", use_container_width=True):
             do_login()
 
     st.stop()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Logged-in user info
-# ═══════════════════════════════════════════════════════════════════════
-
+# Logged-in user info
 user = st.session_state.get("user", {})
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Sidebar
-# ═══════════════════════════════════════════════════════════════════════
-
+# Sidebar
 with st.sidebar:
-    # ── User profile ──────────────────────────────────────────────────
     st.markdown(
         f"""
         <div class="user-badge">
@@ -301,30 +255,29 @@ with st.sidebar:
     )
     st.caption(f"📧 {user.get('email', '')}")
 
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("Logout", use_container_width=True):
         do_logout()
 
     st.markdown("---")
-    st.markdown("### ⚙️ System Status")
+    st.markdown("### System Status")
 
-    # Health check
     try:
         r = requests.get(f"{BACKEND_URL}/health", timeout=5)
         health = r.json()
         status = health.get("status", "unknown")
         services = health.get("services", {})
         if status == "healthy":
-            st.success("🟢 System Online")
+            st.success("System Online")
         else:
-            st.warning(f"🟡 System: {status}")
+            st.warning(f"System: {status}")
         for svc, svc_status in services.items():
             icon = "✅" if svc_status in ("running", "connected") else "❌"
             st.caption(f"{icon} **{svc.replace('_', ' ').title()}**: {svc_status}")
     except requests.exceptions.ConnectionError:
-        st.error("🔴 Backend Offline")
+        st.error("Backend Offline")
 
     st.markdown("---")
-    st.markdown("### 🕐 Recent Sessions")
+    st.markdown("### Recent Sessions")
     try:
         r = requests.get(
             f"{BACKEND_URL}/transcriptions?limit=5",
@@ -338,7 +291,7 @@ with st.sidebar:
                     ts = mem.get("created_at", "N/A")
                     imp = "⭐" if mem.get("is_important") else "📝"
                     preview = (mem.get("transcript", "") or "")[:60]
-                    st.caption(f"{imp} `{ts[:16]}` — {preview}...")
+                    st.caption(f"{imp} `{ts[:16]}` - {preview}...")
             else:
                 st.caption("No sessions yet.")
         else:
@@ -350,18 +303,14 @@ with st.sidebar:
     st.caption("**VoiceTrace AI** · Groq Whisper · LangGraph · Qdrant Cloud · Supabase")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Main Content
-# ═══════════════════════════════════════════════════════════════════════
-
+# Main Content
 st.markdown('<h1 class="hero-title">🎙️ VoiceTrace AI</h1>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="hero-subtitle">Voice-powered business intelligence — speak your day, get insights instantly.</p>',
+    '<p class="hero-subtitle">Voice-powered business intelligence - speak your day, get insights instantly.</p>',
     unsafe_allow_html=True,
 )
 
-# ── Recording / Upload Tabs ───────────────────────────────────────────
-
+# Recording / Upload Tabs
 tab1, tab2 = st.tabs(["🎙️ Record Audio", "📁 Upload File"])
 
 audio_data = None
@@ -382,14 +331,13 @@ with tab1:
     if recorded_audio:
         audio_data = recorded_audio
         audio_source = "recording"
-        st.success("✅ Recording captured!")
+        st.success("Recording captured!")
         st.audio(recorded_audio, format="audio/wav")
         
-        # Show audio info
         st.markdown(
             f"""
             <div class="result-card">
-                <h3>🎤 Recording Info</h3>
+                <h3>Recording Info</h3>
                 <div class="content">
                     <b>Size:</b> {len(recorded_audio) / 1024:.1f} KB<br>
                     <b>Format:</b> WAV<br>
@@ -416,7 +364,7 @@ with tab2:
         st.markdown(
             f"""
             <div class="result-card">
-                <h3>📁 File Info</h3>
+                <h3>File Info</h3>
                 <div class="content">
                     <b>Name:</b> {uploaded_file.name}<br>
                     <b>Size:</b> {uploaded_file.size / 1024:.1f} KB<br>
@@ -427,9 +375,9 @@ with tab2:
             unsafe_allow_html=True,
         )
 
-# ── Process Button ────────────────────────────────────────────────────
+# Process Button
 if audio_data:
-    if st.button("🚀  Process Audio", type="primary", use_container_width=True):
+    if st.button("Process Audio", type="primary", use_container_width=True):
 
         with st.spinner("Processing your audio through the AI pipeline..."):
             progress = st.progress(0, text="Uploading audio...")
@@ -437,7 +385,6 @@ if audio_data:
             progress.progress(10, text="Transcribing with Groq Whisper...")
 
             try:
-                # Prepare file for upload
                 if audio_source == "recording":
                     files = {
                         "file": ("recording.wav", audio_data, "audio/wav")
@@ -457,12 +404,12 @@ if audio_data:
                 progress.progress(90, text="Rendering results...")
 
                 if response.status_code == 401:
-                    st.error("🔒 Session expired. Please log in again.")
+                    st.error("Session expired. Please log in again.")
                     do_logout()
                     st.stop()
 
                 if response.status_code != 200:
-                    st.error(f"Backend error: {response.status_code} — {response.text}")
+                    st.error(f"Backend error: {response.status_code} - {response.text}")
                     st.stop()
 
                 data = response.json()
@@ -471,31 +418,29 @@ if audio_data:
                 progress.empty()
 
             except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot reach the backend. Is it running?")
+                st.error("Cannot reach the backend. Is it running?")
                 st.stop()
             except requests.exceptions.Timeout:
-                st.error("⏱️ Request timed out. The audio may be too long or the server is busy.")
+                st.error("Request timed out. The audio may be too long or the server is busy.")
                 st.stop()
             except Exception as e:
                 st.error(f"Error: {e}")
                 st.stop()
 
-        # ── Error Check ───────────────────────────────────────────────
         if data.get("error"):
-            st.error(f"⚠️ Pipeline Error: {data['error']}")
+            st.error(f"Pipeline Error: {data['error']}")
 
-        # ── Safety Flag ───────────────────────────────────────────────
         safety = data.get("safety_flag", "safe")
         if safety == "unsafe":
             st.markdown(
-                '<span class="badge badge-unsafe">🛡️ UNSAFE — Content Blocked</span>',
+                '<span class="badge badge-unsafe">UNSAFE - Content Blocked</span>',
                 unsafe_allow_html=True,
             )
             st.stop()
 
-        # ── Show Transcript First (as requested) ──────────────────────
+        # Show Transcript First
         st.markdown("---")
-        st.markdown("## 📝 Transcript")
+        st.markdown("## Transcript")
         
         transcript_text = data.get("transcript", "No transcript generated.")
         st.markdown(
@@ -509,26 +454,26 @@ if audio_data:
             unsafe_allow_html=True,
         )
 
-        # ── Results ───────────────────────────────────────────────────
+        # Results
         st.markdown("---")
-        st.markdown("## 📊 Analysis Results")
+        st.markdown("## Analysis Results")
 
         proc_time = data.get("processing_time_seconds", 0)
-        st.caption(f"⚡ Processed in **{proc_time:.2f} seconds** | Session: `{data.get('session_id', 'N/A')}`")
+        st.caption(f"Processed in **{proc_time:.2f} seconds** | Session: `{data.get('session_id', 'N/A')}`")
 
         badge_cols = st.columns(3)
         with badge_cols[0]:
-            st.markdown('<span class="badge badge-safe">🛡️ SAFE</span>', unsafe_allow_html=True)
+            st.markdown('<span class="badge badge-safe">SAFE</span>', unsafe_allow_html=True)
         with badge_cols[1]:
             is_imp = data.get("is_important", False)
             if is_imp:
                 st.markdown(
-                    '<span class="badge badge-important">⭐ IMPORTANT — Stored in Long-Term Memory</span>',
+                    '<span class="badge badge-important">IMPORTANT - Stored in Long-Term Memory</span>',
                     unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
-                    '<span class="badge badge-routine">📝 Routine — Stored in Supabase</span>',
+                    '<span class="badge badge-routine">Routine - Stored in Supabase</span>',
                     unsafe_allow_html=True,
                 )
         with badge_cols[2]:
@@ -541,7 +486,7 @@ if audio_data:
 
         with left:
             st.markdown(
-                '<div class="result-card"><h3>📋 Extracted Business Data</h3><div class="content">',
+                '<div class="result-card"><h3>Extracted Business Data</h3><div class="content">',
                 unsafe_allow_html=True,
             )
             if extracted:
@@ -555,15 +500,15 @@ if audio_data:
                         <div class="metric-row">
                             <div class="metric-card">
                                 <div class="label">Earnings</div>
-                                <div class="value value-green">{'₹' + str(total_earn) if total_earn is not None else '—'}</div>
+                                <div class="value value-green">{'₹' + str(total_earn) if total_earn is not None else '-'}</div>
                             </div>
                             <div class="metric-card">
                                 <div class="label">Expenses</div>
-                                <div class="value value-red">{'₹' + str(total_exp) if total_exp is not None else '—'}</div>
+                                <div class="value value-red">{'₹' + str(total_exp) if total_exp is not None else '-'}</div>
                             </div>
                             <div class="metric-card">
                                 <div class="label">Net Profit</div>
-                                <div class="value value-blue">{'₹' + str(net) if net is not None else '—'}</div>
+                                <div class="value value-blue">{'₹' + str(net) if net is not None else '-'}</div>
                             </div>
                         </div>
                         """,
@@ -579,9 +524,9 @@ if audio_data:
                 st.markdown(
                     f"""
                     <div class="result-card">
-                        <h3>🧠 Memory Stored in Qdrant Cloud</h3>
+                        <h3>Memory Stored in Qdrant Cloud</h3>
                         <div class="content">
-                            <span class="badge badge-important">⭐ Long-Term Memory</span>
+                            <span class="badge badge-important">Long-Term Memory</span>
                             <p style="margin-top:12px;">{data["formatted_memory"]}</p>
                         </div>
                     </div>
@@ -592,9 +537,9 @@ if audio_data:
                 st.markdown(
                     """
                     <div class="result-card">
-                        <h3>🧠 Memory Decision</h3>
+                        <h3>Memory Decision</h3>
                         <div class="content">
-                            <span class="badge badge-routine">📝 Saved to Supabase</span>
+                            <span class="badge badge-routine">Saved to Supabase</span>
                             <p style="margin-top:12px;">This entry was saved to your Supabase history (not added to vector memory).</p>
                         </div>
                     </div>
@@ -604,7 +549,7 @@ if audio_data:
 
             memories = data.get("retrieved_memories", [])
             st.markdown(
-                '<div class="result-card"><h3>🔍 Retrieved Past Memories</h3><div class="content">',
+                '<div class="result-card"><h3>Retrieved Past Memories</h3><div class="content">',
                 unsafe_allow_html=True,
             )
             if memories:
@@ -628,7 +573,7 @@ if audio_data:
         st.markdown(
             f"""
             <div class="result-card" style="border-color: #6366f1; margin-top: 8px;">
-                <h3>💡 AI Analysis & Recommendations</h3>
+                <h3>AI Analysis & Recommendations</h3>
                 <div class="content">{data.get("final_response", "No response generated.").replace(chr(10), "<br>")}</div>
             </div>
             """,
@@ -641,23 +586,23 @@ else:
         <div style="text-align: center; padding: 60px 20px; color: #64748b;">
             <div style="font-size: 4rem; margin-bottom: 16px;">🎙️</div>
             <h3 style="color: #94a3b8;">Record your voice or upload an audio file</h3>
-            <p>Record your business day — sales, expenses, insights — and let AI do the rest.</p>
+            <p>Record your business day - sales, expenses, insights - and let AI do the rest.</p>
             <p style="font-size: 0.85rem; color: #475569;">
-                🎤 Click the microphone to record live<br>
-                📁 Or upload: WAV, MP3, M4A, OGG, FLAC, WebM · Max 3 minutes
+                Click the microphone to record live<br>
+                Or upload: WAV, MP3, M4A, OGG, FLAC, WebM · Max 3 minutes
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-# ─── Footer ───────────────────────────────────────────────────────────
+# Footer
 st.markdown("---")
 st.markdown(
     """
     <div style="text-align: center; color: #475569; font-size: 0.8rem; padding: 12px 0;">
         <b>VoiceTrace AI</b> · Groq Whisper · LangGraph · Qdrant Cloud · Supabase<br>
-        Built for hackathon excellence 🏆
+        Built for hackathon excellence
     </div>
     """,
     unsafe_allow_html=True,

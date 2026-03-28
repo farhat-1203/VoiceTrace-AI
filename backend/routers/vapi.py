@@ -17,9 +17,11 @@ Note: VAPI is a custom voice agent (not phone-based)
 """
 from __future__ import annotations
 
+import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 from loguru import logger
 
 from services.vapi_service import vapi_service
@@ -58,6 +60,13 @@ class VAPICallStartRequest(BaseModel):
     trigger_reason: Optional[str] = None
 
 
+class VAPISessionInitRequest(BaseModel):
+    """Request to initialize a VAPI session."""
+    user_id: str
+    trigger_reason: str
+    context_data: Optional[dict] = None
+
+
 class VAPICallEndRequest(BaseModel):
     call_id: str
     user_id: str
@@ -77,6 +86,106 @@ class VAPIMessageRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 #  Routes
 # ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/session/start")
+async def start_vapi_session(
+    data: VAPISessionInitRequest,
+):
+    """
+    Initialize a VAPI custom agent session.
+    
+    This endpoint is called to start a new VAPI session with the vendor.
+    Returns session configuration and function definitions.
+    """
+    logger.info(f"Starting VAPI session for user {data.user_id}: {data.trigger_reason}")
+    
+    try:
+        # Get pending clarifications
+        clarifications = vapi_service.get_pending_clarifications(
+            user_id=data.user_id,
+            limit=10
+        )
+        
+        # Get unconfirmed items
+        from services.ledger_service import ledger_service
+        unconfirmed = ledger_service.get_unconfirmed_items(user_id=data.user_id)
+        
+        # Build context for VAPI
+        context = {
+            "user_id": data.user_id,
+            "trigger_reason": data.trigger_reason,
+            "pending_clarifications": len(clarifications),
+            "unconfirmed_items": len(unconfirmed),
+            "clarifications": clarifications[:5],  # First 5
+            "unconfirmed": [
+                {
+                    "id": item.get("id"),
+                    "name": item.get("item_name"),
+                    "quantity": item.get("quantity"),
+                    "confidence": item.get("confidence_score")
+                }
+                for item in unconfirmed[:5]
+            ]
+        }
+        
+        # Get function definitions
+        import requests
+        backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+        functions_response = requests.get(f"{backend_url}/vapi/functions/definitions")
+        functions = functions_response.json().get("functions", []) if functions_response.status_code == 200 else []
+        
+        return {
+            "success": True,
+            "session_id": f"vapi-session-{datetime.utcnow().timestamp()}",
+            "context": context,
+            "functions": functions,
+            "system_prompt": """
+You are a helpful business assistant for street vendors in India.
+Your job is to help vendors understand their business data and clarify uncertain information.
+
+Guidelines:
+- Speak in Hindi or Hinglish (mix of Hindi and English)
+- Be friendly, warm, and conversational
+- Ask one question at a time
+- Confirm information before moving to next question
+- Use the available functions to fetch real-time data
+- Show empathy when vendor seems upset
+
+Available functions:
+- get_today_summary: Get today's business data
+- get_weekly_summary: Get weekly summary
+- get_best_sellers: Find top-selling items
+- get_stock_suggestions: Get tomorrow's stock recommendations
+- confirm_item: Confirm uncertain item details
+- get_unconfirmed_items: List items needing clarification
+- get_recent_anomalies: Check for unusual activities
+- get_expense_breakdown: Analyze expenses
+- get_mood_trend: Check mood over time
+- search_past_records: Search historical data
+
+When clarifying items:
+1. Ask for item name if vague
+2. Ask for quantity if missing
+3. Ask for price if missing
+4. Use confirm_item function to update
+
+Example conversation:
+Vendor: "आज का सारांश बताओ"
+You: *calls get_today_summary* "आज आपने ₹1100 की कमाई की और ₹550 खर्च किए। शुद्ध लाभ ₹550 है। क्या और कुछ जानना चाहेंगे?"
+
+Vendor: "कौन सी चीज़ सबसे ज्यादा बिकी?"
+You: *calls get_best_sellers* "इस हफ्ते केले सबसे ज्यादा बिके - 420 केले, ₹2100 की कमाई।"
+            """.strip(),
+            "webhook_url": os.getenv("VAPI_WEBHOOK_URL", ""),
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to start VAPI session: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 
 @router.post("/webhook/call-start")
 async def vapi_call_start(

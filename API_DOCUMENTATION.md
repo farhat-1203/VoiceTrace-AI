@@ -684,9 +684,215 @@ Get stock-out history.
 
 ---
 
-## VAPI Webhook Endpoints
+## VAPI Integration Endpoints
 
-### `POST /vapi/webhook/call-start`
+### Session Initialization (Start Point)
+
+#### `POST /vapi/session/start`
+Initialize a VAPI custom voice agent session with context and function definitions.
+
+**Body:**
+```json
+{
+  "user_id": "uuid",
+  "trigger_reason": "3 items need clarification",
+  "context_data": {
+    "transcription_id": "uuid",
+    "session_id": "uuid"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "session_id": "vapi-session-1234567890",
+  "context": {
+    "user_id": "uuid",
+    "trigger_reason": "3 items need clarification",
+    "pending_clarifications": 3,
+    "unconfirmed_items": 5,
+    "clarifications": [...],
+    "unconfirmed": [...]
+  },
+  "functions": [
+    {
+      "name": "get_today_summary",
+      "description": "Get today's business summary",
+      "parameters": {...}
+    }
+  ],
+  "system_prompt": "You are a helpful business assistant...",
+  "webhook_url": "https://your-backend.com/vapi/webhook"
+}
+```
+
+---
+
+### Function Calling
+
+#### `GET /vapi/functions/definitions`
+Get all available function definitions for VAPI in OpenAI function calling format.
+
+**Response:**
+```json
+{
+  "functions": [
+    {
+      "name": "get_today_summary",
+      "description": "Get today's business summary including earnings, expenses, and items sold",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The vendor's user ID"
+          }
+        },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "get_weekly_summary",
+      "description": "Get weekly business summary with total earnings, expenses, and top items",
+      "parameters": {...}
+    },
+    {
+      "name": "get_best_sellers",
+      "description": "Get the best-selling items over a period",
+      "parameters": {...}
+    },
+    {
+      "name": "get_stock_suggestions",
+      "description": "Get stock suggestions for tomorrow based on sales patterns",
+      "parameters": {...}
+    },
+    {
+      "name": "confirm_item",
+      "description": "Confirm and update an uncertain item with correct details",
+      "parameters": {...}
+    },
+    {
+      "name": "get_unconfirmed_items",
+      "description": "Get list of items that need clarification (low confidence)",
+      "parameters": {...}
+    },
+    {
+      "name": "get_recent_anomalies",
+      "description": "Get recent unusual business activities or alerts",
+      "parameters": {...}
+    },
+    {
+      "name": "get_expense_breakdown",
+      "description": "Get breakdown of expenses by type for a period",
+      "parameters": {...}
+    },
+    {
+      "name": "get_mood_trend",
+      "description": "Get vendor's mood trend over time",
+      "parameters": {...}
+    },
+    {
+      "name": "search_past_records",
+      "description": "Search past business records by date or item name",
+      "parameters": {...}
+    }
+  ],
+  "count": 10
+}
+```
+
+---
+
+#### `POST /vapi/functions/execute`
+Execute a function called by VAPI agent.
+
+**Body:**
+```json
+{
+  "function_name": "get_today_summary",
+  "parameters": {
+    "user_id": "uuid"
+  },
+  "user_id": "uuid",
+  "session_id": "vapi-session-123"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": {
+    "message": "आज का सारांश (Today's summary)",
+    "has_data": true,
+    "date": "2026-03-28",
+    "total_earnings": 1100,
+    "total_expenses": 550,
+    "net_profit": 550,
+    "items_count": 3,
+    "expenses_count": 2,
+    "items": [
+      {
+        "name": "केला",
+        "quantity": 60,
+        "amount": 300
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+---
+
+#### `POST /vapi/functions/batch-execute`
+Execute multiple functions in batch.
+
+**Body:**
+```json
+[
+  {
+    "function_name": "get_today_summary",
+    "parameters": {"user_id": "uuid"},
+    "user_id": "uuid",
+    "session_id": "vapi-session-123"
+  },
+  {
+    "function_name": "get_best_sellers",
+    "parameters": {"user_id": "uuid", "days": 7, "limit": 5},
+    "user_id": "uuid",
+    "session_id": "vapi-session-123"
+  }
+]
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "function": "get_today_summary",
+      "success": true,
+      "result": {...}
+    },
+    {
+      "function": "get_best_sellers",
+      "success": true,
+      "result": {...}
+    }
+  ],
+  "total": 2,
+  "successful": 2
+}
+```
+
+---
+
+### VAPI Webhook Endpoints
+
+#### `POST /vapi/webhook/call-start`
 VAPI webhook: Call started.
 
 **Body:**

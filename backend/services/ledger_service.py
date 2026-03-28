@@ -21,6 +21,7 @@ class LedgerService:
         transcription_id: str,
         extracted_data: dict,
         audio_url: Optional[str] = None,
+        audio_storage_path: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create a ledger entry from extracted transcription data.
@@ -29,7 +30,8 @@ class LedgerService:
             user_id: Vendor's user ID
             transcription_id: Reference to transcription
             extracted_data: Parsed business data from LLM
-            audio_url: Presigned URL to audio file in Supabase Storage
+            audio_url: S3 presigned URL to audio file (expires after 7 days)
+            audio_storage_path: S3 storage path for regenerating presigned URLs
         
         Returns:
             ledger_entry_id or None on failure
@@ -44,6 +46,8 @@ class LedgerService:
                 "entry_date": entry_date.isoformat(),
                 "total_earnings": 0,
                 "total_expenses": 0,
+                "audio_url": audio_url,
+                "audio_storage_path": audio_storage_path,
                 "notes": extracted_data.get("notes", ""),
             }
             

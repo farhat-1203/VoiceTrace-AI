@@ -32,7 +32,7 @@ from services.guardrail import classify as guardrail_classify
 from services.groq_llm import extract_entities, generate_response
 
 # Import routers
-from routers import ledger, patterns, anomalies, suggestions, vapi, export as export_router
+from routers import ledger, patterns, anomalies, suggestions, vapi, vapi_functions, export as export_router
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -116,6 +116,7 @@ app.include_router(patterns.router)
 app.include_router(anomalies.router)
 app.include_router(suggestions.router)
 app.include_router(vapi.router)
+app.include_router(vapi_functions.router)
 app.include_router(export_router.router)
 
 
@@ -232,11 +233,36 @@ async def process_audio(
     safety_flag = "safe" if result.get("is_safe", True) else "unsafe"
 
     # ── Persist to Supabase ───────────────────────────────────────────
+    # First upload audio to S3 and get presigned URL
+    audio_url = None
+    audio_storage_path = None
+    
+    if os.path.exists(file_path):
+        from services.audio_storage_service import audio_storage_service
+        
+        # Upload to S3 and get storage path
+        audio_storage_path = audio_storage_service.upload_audio(
+            file_path=file_path,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        
+        if audio_storage_path:
+            # Generate presigned URL (expires in 7 days)
+            audio_url = audio_storage_service.get_presigned_url(
+                storage_path=audio_storage_path,
+                expires_in=604800,  # 7 days
+            )
+            logger.info(f"Audio uploaded to S3: {audio_storage_path}")
+    
+    # Store transcription with audio URLs
     transcription_id = supabase_service.store_transcription(
         user_id=user_id,
         transcript=result.get("transcript", ""),
         audio_filename=file.filename or "",
         audio_duration_secs=duration,
+        audio_url=audio_url,
+        audio_storage_path=audio_storage_path,
         sanitized_transcript=result.get("sanitized_transcript", ""),
         is_safe=result.get("is_safe", True),
         safety_response=result.get("safety_response", ""),
@@ -257,29 +283,14 @@ async def process_audio(
         # ── Create ledger entry after transcription is saved ─────────
         try:
             from services.ledger_service import ledger_service
-            from services.audio_storage_service import audio_storage_service
             
-            # Upload audio to Supabase Storage (before deleting file)
-            audio_url = None
-            if os.path.exists(file_path):
-                storage_path = audio_storage_service.upload_audio(
-                    file_path=file_path,
-                    user_id=user_id,
-                    session_id=session_id,
-                )
-                if storage_path:
-                    audio_url = audio_storage_service.get_presigned_url(
-                        storage_path=storage_path,
-                        expires_in=604800,  # 7 days
-                    )
-                    logger.info(f"Audio uploaded to Supabase Storage: {storage_path}")
-            
-            # Create ledger entry
+            # Create ledger entry with audio URLs
             ledger_entry_id = ledger_service.create_entry_from_transcription(
                 user_id=user_id,
                 transcription_id=transcription_id,
                 extracted_data=result.get("extracted_data", {}),
                 audio_url=audio_url,
+                audio_storage_path=audio_storage_path,
             )
             
             if ledger_entry_id:
@@ -288,6 +299,7 @@ async def process_audio(
                 # Store audio segments
                 segments = result.get("segments", [])
                 if segments and audio_url:
+                    from services.audio_storage_service import audio_storage_service
                     audio_storage_service.store_audio_segments(
                         transcription_id=transcription_id,
                         segments=segments,
