@@ -1,23 +1,7 @@
 version: "3.9"
 
 services:
-  # ── Qdrant Vector Database ──────────────────────────────────────────
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: voicetrace-qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── FastAPI Backend ─────────────────────────────────────────────────
+  # ── FastAPI Backend (API mode — no GPU required) ─────────────────────
   backend:
     build:
       context: ./backend
@@ -28,24 +12,15 @@ services:
     env_file:
       - .env
     environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
+      # Explicitly set mode here; can be overridden in .env
+      - MODEL_MODE=api
     volumes:
+      # Mount source for hot-reload in development; remove for production
       - ./backend:/app
-      - whisperx_cache:/root/.cache
-    depends_on:
-      qdrant:
-        condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
+    # NOTE: No GPU reservation needed — all inference is via API
 
-  # ── Streamlit Frontend ──────────────────────────────────────────────
+  # ── Streamlit Frontend ─────────────────────────────────────────────
   streamlit:
     build:
       context: ./frontend
@@ -53,12 +28,12 @@ services:
     container_name: voicetrace-streamlit
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     environment:
       - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
     restart: unless-stopped
 
-volumes:
-  qdrant_data:
-  whisperx_cache:
+# No local volumes needed — WhisperX cache is gone

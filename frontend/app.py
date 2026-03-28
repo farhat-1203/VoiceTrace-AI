@@ -1,13 +1,18 @@
 """
 VoiceTrace AI — Streamlit Frontend
+Auth: Supabase Auth (Google OAuth)
+All API calls include the user's Supabase access token.
 """
 import os
 import json
 import time
 import requests
 import streamlit as st
+from supabase import create_client, Client
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Page Config
@@ -29,142 +34,97 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    /* ── Global ─────────────────────────────────────────────────── */
-    .stApp {
-        font-family: 'Inter', sans-serif;
-    }
+    .stApp { font-family: 'Inter', sans-serif; }
 
-    /* ── Header ─────────────────────────────────────────────────── */
+    /* ── Hero ─────────────────────────────────────────────────── */
     .hero-title {
-        font-size: 2.8rem;
-        font-weight: 700;
+        font-size: 2.8rem; font-weight: 700;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0;
-        line-height: 1.2;
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        margin-bottom: 0; line-height: 1.2;
     }
-    .hero-subtitle {
-        font-size: 1.1rem;
-        color: #94a3b8;
-        margin-top: 4px;
-        margin-bottom: 24px;
+    .hero-subtitle { font-size: 1.1rem; color: #94a3b8; margin-top: 4px; margin-bottom: 24px; }
+
+    /* ── Auth Card ───────────────────────────────────────────── */
+    .auth-card {
+        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155; border-radius: 20px;
+        padding: 48px 40px; margin: 60px auto;
+        max-width: 420px; text-align: center;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .auth-card h2 { color: #e2e8f0; font-size: 1.6rem; margin-bottom: 8px; }
+    .auth-card p { color: #94a3b8; font-size: 0.95rem; margin-bottom: 28px; }
+    .google-btn {
+        display: inline-flex; align-items: center; gap: 12px;
+        background: #fff; color: #1a1a1a;
+        border: none; border-radius: 10px;
+        padding: 12px 28px; font-size: 1rem; font-weight: 600;
+        cursor: pointer; text-decoration: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        transition: box-shadow 0.2s;
+    }
+    .google-btn:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+
+    /* ── User Badge ──────────────────────────────────────────── */
+    .user-badge {
+        display: flex; align-items: center; gap: 8px;
+        background: rgba(99,102,241,0.12);
+        border: 1px solid rgba(99,102,241,0.3);
+        border-radius: 10px; padding: 8px 14px;
+        font-size: 0.88rem; color: #a5b4fc;
     }
 
-    /* ── Cards ──────────────────────────────────────────────────── */
+    /* ── Cards ──────────────────────────────────────────────── */
     .result-card {
         background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 16px;
+        border: 1px solid #334155; border-radius: 16px;
+        padding: 24px; margin-bottom: 16px;
         box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+        animation: fadeIn 0.5s ease-out;
     }
-    .result-card h3 {
-        margin-top: 0;
-        font-size: 1.1rem;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .result-card .content {
-        font-size: 0.95rem;
-        line-height: 1.6;
-        color: #cbd5e1;
-    }
+    .result-card h3 { margin-top: 0; font-size: 1.1rem; font-weight: 600; }
+    .result-card .content { font-size: 0.95rem; line-height: 1.6; color: #cbd5e1; }
 
-    /* ── Badges ─────────────────────────────────────────────────── */
+    /* ── Badges ─────────────────────────────────────────────── */
     .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
     }
-    .badge-safe {
-        background: rgba(34,197,94,0.15);
-        color: #22c55e;
-        border: 1px solid rgba(34,197,94,0.3);
-    }
-    .badge-unsafe {
-        background: rgba(239,68,68,0.15);
-        color: #ef4444;
-        border: 1px solid rgba(239,68,68,0.3);
-    }
-    .badge-important {
-        background: rgba(234,179,8,0.15);
-        color: #eab308;
-        border: 1px solid rgba(234,179,8,0.3);
-    }
-    .badge-routine {
-        background: rgba(148,163,184,0.15);
-        color: #94a3b8;
-        border: 1px solid rgba(148,163,184,0.3);
-    }
+    .badge-safe   { background: rgba(34,197,94,0.15);  color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-unsafe { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .badge-important { background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
+    .badge-routine   { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
 
-    /* ── Metric Card ───────────────────────────────────────────── */
-    .metric-row {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 16px;
-    }
+    /* ── Metric Cards ───────────────────────────────────────── */
+    .metric-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
     .metric-card {
-        flex: 1;
-        min-width: 140px;
+        flex: 1; min-width: 140px;
         background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 16px;
-        text-align: center;
+        border: 1px solid #334155; border-radius: 12px;
+        padding: 16px; text-align: center;
     }
-    .metric-card .label {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .metric-card .value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin-top: 4px;
-    }
-    .value-green { color: #22c55e; }
-    .value-red { color: #ef4444; }
-    .value-blue { color: #60a5fa; }
-    .value-purple { color: #a78bfa; }
+    .metric-card .label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-card .value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
+    .value-green { color: #22c55e; } .value-red { color: #ef4444; }
+    .value-blue  { color: #60a5fa; } .value-purple { color: #a78bfa; }
 
-    /* ── Memory Item ───────────────────────────────────────────── */
+    /* ── Memory ─────────────────────────────────────────────── */
     .memory-item {
-        background: rgba(99,102,241,0.08);
-        border-left: 3px solid #6366f1;
-        border-radius: 0 8px 8px 0;
-        padding: 12px 16px;
-        margin-bottom: 8px;
-        font-size: 0.9rem;
-        color: #cbd5e1;
+        background: rgba(99,102,241,0.08); border-left: 3px solid #6366f1;
+        border-radius: 0 8px 8px 0; padding: 12px 16px;
+        margin-bottom: 8px; font-size: 0.9rem; color: #cbd5e1;
     }
-    .memory-score {
-        font-size: 0.75rem;
-        color: #818cf8;
-        font-weight: 600;
-    }
+    .memory-score { font-size: 0.75rem; color: #818cf8; font-weight: 600; }
 
-    /* ── Sidebar ───────────────────────────────────────────────── */
+    /* ── Sidebar ─────────────────────────────────────────────── */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
     }
 
-    /* ── Animations ────────────────────────────────────────────── */
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(12px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .result-card {
-        animation: fadeIn 0.5s ease-out;
+        to   { opacity: 1; transform: translateY(0); }
     }
     </style>
     """,
@@ -173,10 +133,140 @@ st.markdown(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  Supabase client (anon key — used only on frontend for auth)
+# ═══════════════════════════════════════════════════════════════════════
+
+@st.cache_resource
+def get_supabase() -> Client:
+    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+supabase: Client = get_supabase()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Session helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def is_logged_in() -> bool:
+    return "access_token" in st.session_state and bool(st.session_state["access_token"])
+
+
+def get_auth_headers() -> dict:
+    return {"Authorization": f"Bearer {st.session_state.get('access_token', '')}"}
+
+
+def handle_oauth_callback():
+    """
+    After Google redirects back, Streamlit url will have `?code=...`.  
+    We exchange the code for a session using Supabase.
+    """
+    params = st.query_params
+    code = params.get("code")
+    if code and not is_logged_in():
+        try:
+            session = supabase.auth.exchange_code_for_session({"auth_code": code})
+            if session and session.session:
+                st.session_state["access_token"] = session.session.access_token
+                st.session_state["user"] = {
+                    "id": session.user.id,
+                    "email": session.user.email,
+                    "name": (session.user.user_metadata or {}).get("full_name", ""),
+                    "avatar": (session.user.user_metadata or {}).get("avatar_url", ""),
+                }
+                # Clean the URL so the code doesn't re-fire on refresh
+                st.query_params.clear()
+                st.rerun()
+        except Exception as e:
+            st.error(f"Login failed: {e}")
+
+
+def do_login():
+    """Start Google OAuth — redirects user to Google consent screen."""
+    try:
+        redirect_to = st.get_option("browser.serverAddress") or "http://localhost:8501"
+        result = supabase.auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {"redirect_to": redirect_to},
+        })
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url={result.url}">',
+            unsafe_allow_html=True,
+        )
+    except Exception as e:
+        st.error(f"Could not initiate Google login: {e}")
+
+
+def do_logout():
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+    for k in ("access_token", "user"):
+        st.session_state.pop(k, None)
+    st.rerun()
+
+
+# ─── Handle callback on page load ────────────────────────────────────
+handle_oauth_callback()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Auth gate — show login screen if not logged in
+# ═══════════════════════════════════════════════════════════════════════
+
+if not is_logged_in():
+    st.markdown('<h1 class="hero-title">🎙️ VoiceTrace AI</h1>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="hero-subtitle">Voice-powered business intelligence — speak your day, get insights instantly.</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(
+            """
+            <div class="auth-card">
+                <div style="font-size:3.5rem;margin-bottom:12px;">🎙️</div>
+                <h2>Welcome to VoiceTrace AI</h2>
+                <p>Sign in to start transcribing, extracting insights, and building your voice memory.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("🔐  Sign in with Google", type="primary", use_container_width=True):
+            do_login()
+
+    st.stop()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Logged-in user info
+# ═══════════════════════════════════════════════════════════════════════
+
+user = st.session_state.get("user", {})
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  Sidebar
 # ═══════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
+    # ── User profile ──────────────────────────────────────────────────
+    st.markdown(
+        f"""
+        <div class="user-badge">
+            👤 <span>{user.get("name") or user.get("email", "User")}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption(f"📧 {user.get('email', '')}")
+
+    if st.button("🚪 Logout", use_container_width=True):
+        do_logout()
+
+    st.markdown("---")
     st.markdown("### ⚙️ System Status")
 
     # Health check
@@ -185,43 +275,41 @@ with st.sidebar:
         health = r.json()
         status = health.get("status", "unknown")
         services = health.get("services", {})
-
         if status == "healthy":
             st.success("🟢 System Online")
         else:
             st.warning(f"🟡 System: {status}")
-
         for svc, svc_status in services.items():
             icon = "✅" if svc_status in ("running", "connected") else "❌"
-            st.caption(f"{icon} **{svc.title()}**: {svc_status}")
-
+            st.caption(f"{icon} **{svc.replace('_', ' ').title()}**: {svc_status}")
     except requests.exceptions.ConnectionError:
         st.error("🔴 Backend Offline")
-        st.caption("Make sure the backend service is running.")
-
-    st.markdown("---")
-    st.markdown("### 📋 About")
-    st.caption(
-        "**VoiceTrace AI** processes voice recordings from business owners, "
-        "extracts structured data, and builds long-term memory for insights."
-    )
-    st.caption("Built with WhisperX · Groq · LangGraph · Qdrant")
 
     st.markdown("---")
     st.markdown("### 🕐 Recent Sessions")
     try:
-        r = requests.get(f"{BACKEND_URL}/memories/recent?limit=5", timeout=5)
-        recent = r.json()
-        if recent:
-            for mem in recent:
-                ts = mem.get("created_at", "N/A")
-                imp = "⭐" if mem.get("is_important") else "📝"
-                preview = (mem.get("transcript", "") or "")[:60]
-                st.caption(f"{imp} `{ts[:16]}` — {preview}...")
+        r = requests.get(
+            f"{BACKEND_URL}/transcriptions?limit=5",
+            headers=get_auth_headers(),
+            timeout=5,
+        )
+        if r.status_code == 200:
+            recent = r.json()
+            if recent:
+                for mem in recent:
+                    ts = mem.get("created_at", "N/A")
+                    imp = "⭐" if mem.get("is_important") else "📝"
+                    preview = (mem.get("transcript", "") or "")[:60]
+                    st.caption(f"{imp} `{ts[:16]}` — {preview}...")
+            else:
+                st.caption("No sessions yet.")
         else:
-            st.caption("No sessions yet.")
+            st.caption("Could not load sessions.")
     except Exception:
         st.caption("Unable to load recent sessions.")
+
+    st.markdown("---")
+    st.caption("**VoiceTrace AI** · WhisperX · Groq · LangGraph · Qdrant Cloud · Supabase")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -230,9 +318,7 @@ with st.sidebar:
 
 st.markdown('<h1 class="hero-title">🎙️ VoiceTrace AI</h1>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="hero-subtitle">'
-    "Voice-powered business intelligence — speak your day, get insights instantly."
-    "</p>",
+    '<p class="hero-subtitle">Voice-powered business intelligence — speak your day, get insights instantly.</p>',
     unsafe_allow_html=True,
 )
 
@@ -263,7 +349,6 @@ with col_info:
             unsafe_allow_html=True,
         )
 
-# ── Audio Preview ─────────────────────────────────────────────────────
 if uploaded_file:
     st.audio(uploaded_file, format=uploaded_file.type)
 
@@ -277,17 +362,22 @@ if uploaded_file:
             progress.progress(10, text="Transcribing with WhisperX...")
 
             try:
-                # Send to backend
                 files = {
                     "file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)
                 }
                 response = requests.post(
                     f"{BACKEND_URL}/process",
                     files=files,
-                    timeout=120,
+                    headers=get_auth_headers(),    # ← JWT token attached
+                    timeout=180,
                 )
 
                 progress.progress(90, text="Rendering results...")
+
+                if response.status_code == 401:
+                    st.error("🔒 Session expired. Please log in again.")
+                    do_logout()
+                    st.stop()
 
                 if response.status_code != 200:
                     st.error(f"Backend error: {response.status_code} — {response.text}")
@@ -325,17 +415,12 @@ if uploaded_file:
         st.markdown("---")
         st.markdown("## 📊 Results")
 
-        # Processing time
         proc_time = data.get("processing_time_seconds", 0)
         st.caption(f"⚡ Processed in **{proc_time:.2f} seconds** | Session: `{data.get('session_id', 'N/A')}`")
 
-        # ── Badges Row ────────────────────────────────────────────────
         badge_cols = st.columns(3)
         with badge_cols[0]:
-            st.markdown(
-                '<span class="badge badge-safe">🛡️ SAFE</span>',
-                unsafe_allow_html=True,
-            )
+            st.markdown('<span class="badge badge-safe">🛡️ SAFE</span>', unsafe_allow_html=True)
         with badge_cols[1]:
             is_imp = data.get("is_important", False)
             if is_imp:
@@ -345,22 +430,18 @@ if uploaded_file:
                 )
             else:
                 st.markdown(
-                    '<span class="badge badge-routine">📝 Routine — Short-Term Only</span>',
+                    '<span class="badge badge-routine">📝 Routine — Stored in Supabase</span>',
                     unsafe_allow_html=True,
                 )
         with badge_cols[2]:
             extracted = data.get("extracted_data", {})
             sentiment = extracted.get("sentiment", "neutral")
-            sent_emoji = {"positive": "😊", "negative": "😟", "mixed": "😐", "neutral": "😐"}.get(
-                sentiment, "😐"
-            )
+            sent_emoji = {"positive": "😊", "negative": "😟", "mixed": "😐", "neutral": "😐"}.get(sentiment, "😐")
             st.markdown(f"**Sentiment:** {sent_emoji} {sentiment.title()}")
 
-        # ── Two-Column Layout ─────────────────────────────────────────
         left, right = st.columns(2)
 
         with left:
-            # Transcript
             st.markdown(
                 f"""
                 <div class="result-card">
@@ -371,16 +452,14 @@ if uploaded_file:
                 unsafe_allow_html=True,
             )
 
-            # Extracted Data
             st.markdown(
                 '<div class="result-card"><h3>📋 Extracted Business Data</h3><div class="content">',
                 unsafe_allow_html=True,
             )
             if extracted:
-                # Metrics row
                 total_earn = extracted.get("total_earnings")
-                total_exp = extracted.get("total_expenses")
-                net = extracted.get("net_profit")
+                total_exp  = extracted.get("total_expenses")
+                net        = extracted.get("net_profit")
 
                 if any(v is not None for v in [total_earn, total_exp, net]):
                     st.markdown(
@@ -388,40 +467,31 @@ if uploaded_file:
                         <div class="metric-row">
                             <div class="metric-card">
                                 <div class="label">Earnings</div>
-                                <div class="value value-green">
-                                    {'₹' + str(total_earn) if total_earn is not None else '—'}
-                                </div>
+                                <div class="value value-green">{'₹' + str(total_earn) if total_earn is not None else '—'}</div>
                             </div>
                             <div class="metric-card">
                                 <div class="label">Expenses</div>
-                                <div class="value value-red">
-                                    {'₹' + str(total_exp) if total_exp is not None else '—'}
-                                </div>
+                                <div class="value value-red">{'₹' + str(total_exp) if total_exp is not None else '—'}</div>
                             </div>
                             <div class="metric-card">
                                 <div class="label">Net Profit</div>
-                                <div class="value value-blue">
-                                    {'₹' + str(net) if net is not None else '—'}
-                                </div>
+                                <div class="value value-blue">{'₹' + str(net) if net is not None else '—'}</div>
                             </div>
                         </div>
                         """,
                         unsafe_allow_html=True,
                     )
-
-                # Full JSON
                 st.json(extracted)
             else:
                 st.caption("No data extracted.")
             st.markdown("</div></div>", unsafe_allow_html=True)
 
         with right:
-            # Memory Decision
             if is_imp and data.get("formatted_memory"):
                 st.markdown(
                     f"""
                     <div class="result-card">
-                        <h3>🧠 Memory Stored</h3>
+                        <h3>🧠 Memory Stored in Qdrant Cloud</h3>
                         <div class="content">
                             <span class="badge badge-important">⭐ Long-Term Memory</span>
                             <p style="margin-top:12px;">{data["formatted_memory"]}</p>
@@ -436,17 +506,14 @@ if uploaded_file:
                     <div class="result-card">
                         <h3>🧠 Memory Decision</h3>
                         <div class="content">
-                            <span class="badge badge-routine">📝 Routine</span>
-                            <p style="margin-top:12px;">
-                                This entry was stored in short-term memory only.
-                            </p>
+                            <span class="badge badge-routine">📝 Saved to Supabase</span>
+                            <p style="margin-top:12px;">This entry was saved to your Supabase history (not added to vector memory).</p>
                         </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-            # Retrieved Memories
             memories = data.get("retrieved_memories", [])
             st.markdown(
                 '<div class="result-card"><h3>🔍 Retrieved Past Memories</h3><div class="content">',
@@ -455,8 +522,8 @@ if uploaded_file:
             if memories:
                 for mem in memories:
                     score = mem.get("score", 0)
-                    text = mem.get("formatted_memory", "N/A")
-                    ts = mem.get("timestamp", "")[:16]
+                    text  = mem.get("formatted_memory", "N/A")
+                    ts    = mem.get("timestamp", "")[:16]
                     st.markdown(
                         f"""
                         <div class="memory-item">
@@ -470,7 +537,6 @@ if uploaded_file:
                 st.caption("No relevant past memories found. Build up memory by using the system!")
             st.markdown("</div></div>", unsafe_allow_html=True)
 
-        # ── Final Response (full width) ───────────────────────────────
         st.markdown(
             f"""
             <div class="result-card" style="border-color: #6366f1; margin-top: 8px;">
@@ -482,7 +548,6 @@ if uploaded_file:
         )
 
 else:
-    # ── Empty State ───────────────────────────────────────────────────
     st.markdown(
         """
         <div style="text-align: center; padding: 60px 20px; color: #64748b;">
@@ -497,17 +562,12 @@ else:
         unsafe_allow_html=True,
     )
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Footer
-# ═══════════════════════════════════════════════════════════════════════
-
+# ─── Footer ───────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown(
     """
     <div style="text-align: center; color: #475569; font-size: 0.8rem; padding: 12px 0;">
-        <b>VoiceTrace AI</b> · WhisperX · Groq · LangGraph · Qdrant ·
-        SentenceTransformers<br>
+        <b>VoiceTrace AI</b> · WhisperX · Groq · LangGraph · Qdrant Cloud · Supabase<br>
         Built for hackathon excellence 🏆
     </div>
     """,

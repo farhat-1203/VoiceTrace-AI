@@ -1,7 +1,9 @@
 """
 VoiceTrace AI — Groq LLM Service
-Provides: LlamaGuard safety check, entity extraction, memory analysis,
-          and final response generation with retry logic.
+Provides: entity extraction, memory importance analysis,
+          and final response generation.
+
+NOTE: Safety guardrails are handled by services/guardrail.py
 """
 from __future__ import annotations
 
@@ -13,7 +15,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from config import (
     GROQ_API_KEY,
-    GROQ_GUARD_MODEL,
     GROQ_FAST_MODEL,
     GROQ_MEMORY_MODEL,
     GROQ_RESPONSE_MODEL,
@@ -34,41 +35,6 @@ groq_retry = retry(
         f"Groq retry attempt {rs.attempt_number} after error: {rs.outcome.exception()}"
     ),
 )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  LlamaGuard Safety Check
-# ═══════════════════════════════════════════════════════════════════════
-
-@groq_retry
-def check_safety(text: str) -> dict:
-    """
-    Run LlamaGuard safety classification on text.
-    Returns: {"is_safe": bool, "response": str}
-    """
-    logger.info("Running LlamaGuard safety check")
-
-    response = client.chat.completions.create(
-        model=GROQ_GUARD_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": text,
-            }
-        ],
-        temperature=0.0,
-        max_tokens=100,
-    )
-
-    result_text = response.choices[0].message.content.strip().lower()
-    is_safe = "unsafe" not in result_text
-
-    logger.info(f"Safety check result: {'SAFE' if is_safe else 'UNSAFE'} — {result_text}")
-
-    return {
-        "is_safe": is_safe,
-        "response": result_text,
-    }
 
 
 # ═══════════════════════════════════════════════════════════════════════

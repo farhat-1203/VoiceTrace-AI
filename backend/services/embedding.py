@@ -1,55 +1,75 @@
 """
-VoiceTrace AI — Embedding Service (SentenceTransformers)
+VoiceTrace AI — Embedding Service (API mode)
+Uses qdrant-client's built-in FastEmbed (BAAI/bge-small-en-v1.5).
+
+Why FastEmbed instead of sentence-transformers?
+  • Ships with qdrant-client — zero extra install
+  • ONNX runtime, ~40 MB model, runs on CPU with no torch required
+  • 384-dim output — small Qdrant collection, fast retrieval
+  • Quantized INT8 — ~3ms per embed on CPU
+
+Mode guard:
+  "api"   → FastEmbed (CPU, no GPU needed)
+  "local" → could swap to full SentenceTransformer if needed
 """
 from __future__ import annotations
 
-import torch
+import numpy as np
 from loguru import logger
-from sentence_transformers import SentenceTransformer
 
-from config import EMBEDDING_MODEL, EMBEDDING_DIM
+from config import EMBEDDING_MODEL, EMBEDDING_DIM, MODEL_MODE
 
 
 class EmbeddingService:
-    """Singleton embedding service using multilingual-e5-large."""
+    """
+    Singleton embedding service.
+    Lazy-loads the FastEmbed model on first use so startup is instant.
+    """
 
     _instance: EmbeddingService | None = None
-    _model: SentenceTransformer | None = None
+    _model = None   # fastembed.TextEmbedding instance
 
     def __new__(cls) -> EmbeddingService:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def _load_model(self):
+    def _load(self) -> None:
         if self._model is not None:
             return
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"Loading embedding model {EMBEDDING_MODEL} on {device}")
-        self._model = SentenceTransformer(EMBEDDING_MODEL, device=device)
-        logger.info("Embedding model loaded successfully")
+        logger.info(f"Loading FastEmbed model: {EMBEDDING_MODEL}")
+
+        # fastembed is a transitive dep of qdrant-client[fastembed]
+        # We import lazily so the service file can be imported even if the
+        # optional extra isn't installed — only fails on first embed call.
+        try:
+            from fastembed import TextEmbedding  # type: ignore[import]
+        except ImportError:
+            raise ImportError(
+                "fastembed is not installed. "
+                "Run: pip install 'qdrant-client[fastembed]'"
+            )
+
+        self._model = TextEmbedding(model_name=EMBEDDING_MODEL)
+        logger.info("FastEmbed model loaded ✓")
 
     def embed(self, text: str) -> list[float]:
         """
-        Generate an embedding vector for the given text.
-        Prepends 'query: ' prefix as required by E5 models.
+        Generate a query embedding vector.
+        FastEmbed handles the E5 prefix internally for supported models.
         """
-        self._load_model()
-        # E5 models expect 'query: ' or 'passage: ' prefix
-        prefixed = f"query: {text}"
-        vector = self._model.encode(prefixed, normalize_embeddings=True)
+        self._load()
+        vectors = list(self._model.embed([text]))
+        vector: np.ndarray = vectors[0]
         return vector.tolist()
 
     def embed_passage(self, text: str) -> list[float]:
         """
-        Generate an embedding for storage (passage).
-        Prepends 'passage: ' prefix as required by E5 models.
+        Generate a passage (storage) embedding vector.
+        For bge-small, query and passage embeddings use the same model.
         """
-        self._load_model()
-        prefixed = f"passage: {text}"
-        vector = self._model.encode(prefixed, normalize_embeddings=True)
-        return vector.tolist()
+        return self.embed(text)
 
     @property
     def dimension(self) -> int:

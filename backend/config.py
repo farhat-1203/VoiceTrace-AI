@@ -1,41 +1,49 @@
 """
 VoiceTrace AI — Centralized Configuration
+
+MODEL_MODE controls the inference backend:
+  "api"   → Groq Whisper + Groq LLM (default, no GPU required)
+  "local" → WhisperX + local models (future, requires GPU)
 """
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Mode switch ───────────────────────────────────────────────────────
+# "api" uses Groq for everything. "local" is a future GPU fallback.
+MODEL_MODE: str = os.getenv("MODEL_MODE", "api")
 
 # ── Groq ─────────────────────────────────────────────────────────────
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
-# Models
-GROQ_GUARD_MODEL = "llama-guard-3-8b"
-GROQ_FAST_MODEL = "llama-3.1-8b-instant"
-GROQ_MEMORY_MODEL = "llama-3.1-8b-instant"
-GROQ_RESPONSE_MODEL = "llama-3.1-8b-instant"
+# Transcription — Groq Whisper (api mode)
+GROQ_WHISPER_MODEL: str = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3")
+
+# LLM models
+GROQ_GUARD_MODEL: str  = os.getenv("GROQ_GUARD_MODEL",    "llama-3.1-8b-instant")
+GROQ_FAST_MODEL: str   = os.getenv("GROQ_FAST_MODEL",     "llama-3.1-8b-instant")
+GROQ_MEMORY_MODEL: str = os.getenv("GROQ_MEMORY_MODEL",   "llama-3.1-8b-instant")
+GROQ_RESPONSE_MODEL: str = os.getenv("GROQ_RESPONSE_MODEL", "llama-3.3-70b-versatile")
 
 # ── Qdrant ───────────────────────────────────────────────────────────
-QDRANT_HOST: str = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT: int = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_URL: str        = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY: str    = os.getenv("QDRANT_API_KEY", "")
 QDRANT_COLLECTION: str = "long_term_memory"
 
-# ── WhisperX ─────────────────────────────────────────────────────────
-WHISPERX_MODEL: str = os.getenv("WHISPERX_MODEL", "medium")
-WHISPERX_DEVICE: str = os.getenv("WHISPERX_DEVICE", "cuda")
-WHISPERX_COMPUTE_TYPE: str = os.getenv("WHISPERX_COMPUTE_TYPE", "float16")
+# Embedding dimensions for the API-based embedding strategy.
+# Groq does not provide embeddings; we use Qdrant's FastEmbed (built-in)
+# or a small API. We keep EMBEDDING_DIM for Qdrant collection compatibility.
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+EMBEDDING_DIM: int   = 384   # bge-small-en output size
 
-# ── Embedding ────────────────────────────────────────────────────────
-EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"
-EMBEDDING_DIM: int = 1024
+# ── Supabase ─────────────────────────────────────────────────────────
+SUPABASE_URL: str              = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
-# ── Paths ────────────────────────────────────────────────────────────
-UPLOAD_DIR: str = os.path.join(os.path.dirname(__file__), "uploads")
-SQLITE_DB_PATH: str = os.path.join(os.path.dirname(__file__), "memory.db")
-
-# ── Audio Limits ─────────────────────────────────────────────────────
-MAX_AUDIO_DURATION_SECONDS: int = 180  # 3 minutes
+# ── Paths & Limits ───────────────────────────────────────────────────
+UPLOAD_DIR: str               = os.path.join(os.path.dirname(__file__), "uploads")
+MAX_AUDIO_DURATION_SECONDS: int = 180   # 3 minutes
 
 # ── RAG ──────────────────────────────────────────────────────────────
 RAG_TOP_K: int = 3

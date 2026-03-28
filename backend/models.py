@@ -19,6 +19,7 @@ class PipelineState(TypedDict, total=False):
     """Shared state flowing through the LangGraph pipeline."""
     # Meta
     session_id: str
+    user_id: str         # Supabase auth.users UUID of the logged-in user
     audio_path: str
     timestamp: str
 

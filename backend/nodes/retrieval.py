@@ -20,8 +20,11 @@ def retrieval_node(state: PipelineState) -> PipelineState:
         # Use the transcript as the retrieval query
         query_embedding = embedding_service.embed(transcript)
 
-        # Retrieve from Qdrant
-        memories = qdrant_service.retrieve_similar(query_embedding)
+        # Retrieve from Qdrant Cloud — scoped to this user
+        memories = qdrant_service.retrieve_similar(
+            query_embedding,
+            user_id=state.get("user_id", ""),
+        )
         state["retrieved_memories"] = memories
 
         logger.info(f"Retrieved {len(memories)} past memories")

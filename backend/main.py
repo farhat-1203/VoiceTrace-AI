@@ -1,26 +1,72 @@
 """
 VoiceTrace AI — FastAPI Backend
+Central database: Supabase
+Vector memory:   Qdrant Cloud
+Auth:            Supabase Auth (JWT Bearer tokens)
+Inference:       Groq API (Whisper + LLaMA3) — no local GPU required
 """
 from __future__ import annotations
 
 import os
 import time
 import uuid
-import shutil
 from datetime import datetime
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import aiofiles
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
+from pydantic import BaseModel
 from pydub import AudioSegment
 
 from config import UPLOAD_DIR, MAX_AUDIO_DURATION_SECONDS
 from models import ProcessResponse, HealthResponse
 from graph import pipeline
 from services.qdrant_memory import qdrant_service
-from services.sqlite_memory import sqlite_service
+from services.supabase_service import supabase_service
+from services.transcription import transcription_service
+from services.guardrail import classify as guardrail_classify
+from services.groq_llm import extract_entities, generate_response
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Auth
+# ═══════════════════════════════════════════════════════════════════════
+
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> dict:
+    """
+    Validate the Supabase access token from the Authorization header.
+    Raises 401 if missing or invalid.
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization header. Please log in via Supabase Auth.",
+        )
+    user = supabase_service.get_user_from_token(credentials.credentials)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired session token. Please log in again.",
+        )
+    return user
+
+
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> Optional[dict]:
+    """Like get_current_user but returns None instead of raising for unauthenticated requests."""
+    if not credentials:
+        return None
+    return supabase_service.get_user_from_token(credentials.credentials)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -29,7 +75,6 @@ from services.sqlite_memory import sqlite_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown events."""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     logger.info("🚀 VoiceTrace AI Backend starting up")
     logger.info(f"Upload directory: {UPLOAD_DIR}")
@@ -43,8 +88,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VoiceTrace AI",
-    description="Voice-based AI Business Assistant — Backend API",
-    version="1.0.0",
+    description=(
+        "Voice-based AI Business Assistant — API-driven backend "
+        "(Groq Whisper + LLaMA3, no GPU required)"
+    ),
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -83,31 +131,44 @@ def _validate_audio_duration(path: str) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Routes
+#  Routes — Health
 # ═══════════════════════════════════════════════════════════════════════
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """System health check."""
     qdrant_ok = qdrant_service.health_check()
+    supabase_ok = supabase_service.health_check()
+    overall = "healthy" if (qdrant_ok and supabase_ok) else "degraded"
     return HealthResponse(
-        status="healthy" if qdrant_ok else "degraded",
+        status=overall,
         services={
             "backend": "running",
-            "qdrant": "connected" if qdrant_ok else "disconnected",
-            "sqlite": "connected",
+            "qdrant_cloud": "connected" if qdrant_ok else "disconnected",
+            "supabase": "connected" if supabase_ok else "disconnected",
         },
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════
+#  Routes — Process Audio  (requires auth)
+# ═══════════════════════════════════════════════════════════════════════
+
 @app.post("/process", response_model=ProcessResponse)
-async def process_audio(file: UploadFile = File(...)):
+async def process_audio(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
     """
-    Main endpoint: upload an audio file and process it through the
-    full LangGraph pipeline.
+    Main endpoint: upload audio and run the full LangGraph pipeline.
+    Requires a valid Supabase access token in the Authorization header.
+    Results are saved to Supabase and linked to the authenticated user.
     """
     start = time.time()
     session_id = str(uuid.uuid4())
+    user_id = current_user["id"]
+
+    logger.info(f"Processing audio for user={user_id} session={session_id}")
 
     # ── Validate file type ────────────────────────────────────────────
     if not file.filename:
@@ -133,64 +194,282 @@ async def process_audio(file: UploadFile = File(...)):
     logger.info(f"Audio duration: {duration:.1f}s")
 
     # ── Run the LangGraph pipeline ────────────────────────────────────
+    result = {}
+    pipeline_error: Optional[str] = None
     try:
         initial_state = {
             "session_id": session_id,
+            "user_id": user_id,              # ← passed to every node
             "audio_path": file_path,
             "timestamp": datetime.utcnow().isoformat(),
         }
 
         logger.info(f"Invoking pipeline for session {session_id}")
         result = pipeline.invoke(initial_state)
-
-        processing_time = time.time() - start
-        logger.info(f"Pipeline complete in {processing_time:.2f}s")
-
-        # Check if unsafe
-        safety_flag = "safe"
-        if not result.get("is_safe", True):
-            safety_flag = "unsafe"
-
-        return ProcessResponse(
-            session_id=session_id,
-            transcript=result.get("transcript", ""),
-            extracted_data=result.get("extracted_data", {}),
-            is_important=result.get("is_important", False),
-            formatted_memory=result.get("formatted_memory"),
-            retrieved_memories=result.get("retrieved_memories", []),
-            final_response=result.get("final_response", ""),
-            safety_flag=safety_flag,
-            error=result.get("error"),
-            processing_time_seconds=round(processing_time, 2),
-        )
+        logger.info(f"Pipeline complete in {time.time() - start:.2f}s")
 
     except Exception as e:
-        processing_time = time.time() - start
+        pipeline_error = str(e)
         logger.error(f"Pipeline error: {e}")
-        return ProcessResponse(
-            session_id=session_id,
-            error=str(e),
-            processing_time_seconds=round(processing_time, 2),
-        )
 
     finally:
-        # Clean up uploaded file
+        # Clean up uploaded file regardless
         try:
             os.remove(file_path)
         except OSError:
             pass
 
+    processing_time = round(time.time() - start, 2)
+    safety_flag = "safe" if result.get("is_safe", True) else "unsafe"
 
-@app.get("/memories/recent")
-async def get_recent_memories(limit: int = 10):
-    """Retrieve recent short-term memories from SQLite."""
-    return sqlite_service.get_recent(limit=limit)
+    # ── Persist to Supabase ───────────────────────────────────────────
+    supabase_service.store_transcription(
+        user_id=user_id,
+        transcript=result.get("transcript", ""),
+        audio_filename=file.filename or "",
+        audio_duration_secs=duration,
+        sanitized_transcript=result.get("sanitized_transcript", ""),
+        is_safe=result.get("is_safe", True),
+        safety_response=result.get("safety_response", ""),
+        safety_flag=safety_flag,
+        extracted_data=result.get("extracted_data", {}),
+        is_important=result.get("is_important", False),
+        formatted_memory=result.get("formatted_memory"),
+        retrieved_memories=result.get("retrieved_memories", []),
+        final_response=result.get("final_response", ""),
+        error=pipeline_error,
+        processing_time_secs=processing_time,
+    )
+
+    return ProcessResponse(
+        session_id=session_id,
+        transcript=result.get("transcript", ""),
+        extracted_data=result.get("extracted_data", {}),
+        is_important=result.get("is_important", False),
+        formatted_memory=result.get("formatted_memory"),
+        retrieved_memories=result.get("retrieved_memories", []),
+        final_response=result.get("final_response", ""),
+        safety_flag=safety_flag,
+        error=pipeline_error,
+        processing_time_seconds=processing_time,
+    )
 
 
-@app.get("/memories/session/{session_id}")
-async def get_session_memories(session_id: str):
-    """Retrieve all memories for a specific session."""
-    return sqlite_service.get_by_session(session_id)
+# ═══════════════════════════════════════════════════════════════════════
+#  Routes — Transcription History  (requires auth)
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/transcriptions")
+async def get_my_transcriptions(
+    limit: int = 20,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the most recent transcriptions for the authenticated user."""
+    return supabase_service.get_transcriptions_by_user(
+        user_id=current_user["id"],
+        limit=limit,
+    )
+
+
+@app.get("/transcriptions/{transcription_id}")
+async def get_transcription(
+    transcription_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return a single transcription by ID (must belong to the current user)."""
+    row = supabase_service.get_transcription_by_id(
+        transcription_id=transcription_id,
+        user_id=current_user["id"],
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Transcription not found")
+    return row
+
+
+@app.get("/memories")
+async def get_my_memories(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return important memories for the authenticated user (used as RAG context)."""
+    return supabase_service.get_important_memories_by_user(
+        user_id=current_user["id"],
+        limit=limit,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Routes — Auth Info
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/auth/me")
+async def get_me(current_user: dict = Depends(get_current_user)):
+    """Return the current authenticated user's profile."""
+    return {
+        "id": current_user["id"],
+        "email": current_user["email"],
+        "name": current_user.get("user_metadata", {}).get("full_name", ""),
+        "avatar_url": current_user.get("user_metadata", {}).get("avatar_url", ""),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Run (dev)
+# ═══════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Route — /transcribe  (standalone, no full pipeline)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TranscribeResponse(BaseModel):
+    session_id: str
+    text: str
+    language: str
+    segments: list[dict]
+    duration_seconds: float
+    processing_time_seconds: float
+
+
+@app.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Standalone transcription endpoint.
+    Upload audio → get back text + word-level segments.
+    Does NOT run the full pipeline (no LLM, no memory).
+    Requires a valid Supabase auth token.
+    """
+    start = time.time()
+    session_id = str(uuid.uuid4())
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in (".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported audio format: {ext}. Use wav, mp3, m4a, ogg, flac, or webm.",
+        )
+
+    file_path = os.path.join(UPLOAD_DIR, f"{session_id}{ext}")
+    try:
+        async with aiofiles.open(file_path, "wb") as f:
+            content = await file.read()
+            await f.write(content)
+
+        duration = _validate_audio_duration(file_path)
+        result   = transcription_service.transcribe(file_path)
+    finally:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+    return TranscribeResponse(
+        session_id=session_id,
+        text=result["text"],
+        language=result["language"],
+        segments=result["segments"],
+        duration_seconds=round(duration, 2),
+        processing_time_seconds=round(time.time() - start, 2),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Route — /analyze  (text-only structured insights)
+# ═══════════════════════════════════════════════════════════════════════
+
+class AnalyzeRequest(BaseModel):
+    text: str
+    include_response: bool = True       # also generate a natural-language summary
+
+
+class AnalyzeResponse(BaseModel):
+    session_id: str
+    safety_status: str                  # "SAFE" | "UNSAFE"
+    safety_reason: str
+    extracted_data: dict
+    response: Optional[str] = None
+    processing_time_seconds: float
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+async def analyze_text(
+    body: AnalyzeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Analyze a plain-text transcript without audio upload.
+
+    Flow:
+      1. Input guardrail  — classify text as SAFE / UNSAFE
+      2. Entity extraction — structured business data
+      3. (opt) Response generation — natural-language summary + insights
+      4. Output guardrail  — validate AI response before returning
+
+    Useful for: re-analyzing existing transcripts, testing, or
+    integrating with external STT providers.
+    """
+    start      = time.time()
+    session_id = str(uuid.uuid4())
+    text       = body.text.strip()
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text field must not be empty")
+
+    # ── Step 1: Input guardrail ───────────────────────────────────────
+    guard_in = guardrail_classify(text, role="input")
+    if not guard_in["is_safe"]:
+        logger.warning(f"Analyze input blocked: {guard_in['reason']}")
+        return AnalyzeResponse(
+            session_id=session_id,
+            safety_status="UNSAFE",
+            safety_reason=guard_in["reason"],
+            extracted_data={},
+            response=None,
+            processing_time_seconds=round(time.time() - start, 2),
+        )
+
+    # ── Step 2: Entity extraction ─────────────────────────────────────
+    try:
+        extracted = extract_entities(text)
+    except Exception as e:
+        logger.error(f"Extraction failed: {e}")
+        extracted = {"error": str(e)}
+
+    # ── Step 3: Optional response generation ─────────────────────────
+    final_response: Optional[str] = None
+    if body.include_response:
+        try:
+            raw_response = generate_response(
+                transcript=text,
+                extracted_data=extracted,
+                past_memories=[],
+            )
+            # Step 4: Output guardrail
+            guard_out = guardrail_classify(raw_response, role="output")
+            if guard_out["is_safe"]:
+                final_response = raw_response
+            else:
+                logger.warning(f"Analyze output blocked: {guard_out['reason']}")
+                final_response = (
+                    "Response could not be generated safely. Please try again."
+                )
+        except Exception as e:
+            logger.error(f"Response generation failed: {e}")
+            final_response = f"Error: {str(e)}"
+
+    return AnalyzeResponse(
+        session_id=session_id,
+        safety_status="SAFE",
+        safety_reason=guard_in["reason"],
+        extracted_data=extracted,
+        response=final_response,
+        processing_time_seconds=round(time.time() - start, 2),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -199,5 +478,4 @@ async def get_session_memories(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

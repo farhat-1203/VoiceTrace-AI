@@ -1,9 +1,11 @@
 """
-Node: LlamaGuard Safety Guardrail
+Node: Content Safety Guardrail
+Uses the dedicated GuardrailService (Groq LLM + strict JSON classification prompt).
+Applied to the raw transcript before any further processing.
 """
 from loguru import logger
 from models import PipelineState
-from services.groq_llm import check_safety
+from services.guardrail import check_safety  # ← dedicated guardrail service
 
 
 def guardrail_node(state: PipelineState) -> PipelineState:
