@@ -1,0 +1,8 @@
+# Top-level convenience requirements (for local dev)
+# Use backend/requirements.txt and frontend/requirements.txt for Docker builds.
+
+# Backend
+-r backend/requirements.txt
+
+# Frontend
+-r frontend/requirements.txt

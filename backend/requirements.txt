@@ -1,0 +1,30 @@
+# ── Web Framework ────────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# ── LLM / Groq ──────────────────────────────────────────────────────
+groq==0.13.1
+
+# ── LangGraph / LangChain ───────────────────────────────────────────
+langgraph==0.2.60
+langgraph-checkpoint-sqlite==2.0.6
+langchain-core==0.3.28
+
+# ── Vector Database ─────────────────────────────────────────────────
+qdrant-client==1.12.1
+
+# ── Embeddings ──────────────────────────────────────────────────────
+sentence-transformers==3.3.1
+
+# ── Audio Processing ────────────────────────────────────────────────
+pydub==0.25.1
+soundfile==0.13.1
+
+# ── Utilities ───────────────────────────────────────────────────────
+python-dotenv==1.0.1
+aiosqlite==0.20.0
+tenacity==9.0.0
+pydantic==2.10.4
+loguru==0.7.3
+aiofiles==24.1.0
