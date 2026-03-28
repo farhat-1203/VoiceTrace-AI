@@ -26,6 +26,7 @@ class PipelineState(TypedDict, total=False):
     # Transcription
     transcript: str
     segments: list[dict]
+    detected_language: str  # 'hindi', 'english', 'hinglish', 'other'
 
     # Safety
     is_safe: bool
@@ -50,6 +51,15 @@ class PipelineState(TypedDict, total=False):
     # Final response
     final_response: str
 
+    # Ledger integration
+    transcription_id: Optional[str]   # Set by main.py after DB insert
+    ledger_entry_id: Optional[str]    # Set by save_ledger_node
+    audio_url: Optional[str]          # Presigned URL after upload
+
+    # Mood / VAPI
+    should_trigger_vapi: Optional[bool]
+    mood_trigger_reason: Optional[str]
+
     # Error
     error: Optional[str]
 
@@ -67,6 +77,10 @@ class ProcessResponse(BaseModel):
     retrieved_memories: list[dict] = Field(default_factory=list)
     final_response: str = ""
     safety_flag: str = "safe"
+    ledger_entry_id: Optional[str] = None
+    audio_url: Optional[str] = None
+    should_trigger_vapi: bool = False
+    mood_trigger_reason: Optional[str] = None
     error: Optional[str] = None
     processing_time_seconds: float = 0.0
 

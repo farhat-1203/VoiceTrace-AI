@@ -31,6 +31,9 @@ from services.transcription import transcription_service
 from services.guardrail import classify as guardrail_classify
 from services.groq_llm import extract_entities, generate_response
 
+# Import routers
+from routers import ledger, patterns, anomalies, suggestions, vapi, export as export_router
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Auth
@@ -103,6 +106,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Mount Routers
+# ═══════════════════════════════════════════════════════════════════════
+
+app.include_router(ledger.router)
+app.include_router(patterns.router)
+app.include_router(anomalies.router)
+app.include_router(suggestions.router)
+app.include_router(vapi.router)
+app.include_router(export_router.router)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -196,10 +210,12 @@ async def process_audio(
     # ── Run the LangGraph pipeline ────────────────────────────────────
     result = {}
     pipeline_error: Optional[str] = None
+    transcription_id: Optional[str] = None
+    
     try:
         initial_state = {
             "session_id": session_id,
-            "user_id": user_id,              # ← passed to every node
+            "user_id": user_id,
             "audio_path": file_path,
             "timestamp": datetime.utcnow().isoformat(),
         }
@@ -212,18 +228,11 @@ async def process_audio(
         pipeline_error = str(e)
         logger.error(f"Pipeline error: {e}")
 
-    finally:
-        # Clean up uploaded file regardless
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass
-
     processing_time = round(time.time() - start, 2)
     safety_flag = "safe" if result.get("is_safe", True) else "unsafe"
 
     # ── Persist to Supabase ───────────────────────────────────────────
-    supabase_service.store_transcription(
+    transcription_id = supabase_service.store_transcription(
         user_id=user_id,
         transcript=result.get("transcript", ""),
         audio_filename=file.filename or "",
@@ -237,9 +246,64 @@ async def process_audio(
         formatted_memory=result.get("formatted_memory"),
         retrieved_memories=result.get("retrieved_memories", []),
         final_response=result.get("final_response", ""),
+        detected_language=result.get("detected_language", "unknown"),
         error=pipeline_error,
         processing_time_secs=processing_time,
     )
+    
+    if transcription_id:
+        logger.info(f"Transcription stored with ID: {transcription_id}")
+        
+        # ── Create ledger entry after transcription is saved ─────────
+        try:
+            from services.ledger_service import ledger_service
+            from services.audio_storage_service import audio_storage_service
+            
+            # Upload audio to Supabase Storage (before deleting file)
+            audio_url = None
+            if os.path.exists(file_path):
+                storage_path = audio_storage_service.upload_audio(
+                    file_path=file_path,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                if storage_path:
+                    audio_url = audio_storage_service.get_presigned_url(
+                        storage_path=storage_path,
+                        expires_in=604800,  # 7 days
+                    )
+                    logger.info(f"Audio uploaded to Supabase Storage: {storage_path}")
+            
+            # Create ledger entry
+            ledger_entry_id = ledger_service.create_entry_from_transcription(
+                user_id=user_id,
+                transcription_id=transcription_id,
+                extracted_data=result.get("extracted_data", {}),
+                audio_url=audio_url,
+            )
+            
+            if ledger_entry_id:
+                logger.info(f"Ledger entry created: {ledger_entry_id}")
+                
+                # Store audio segments
+                segments = result.get("segments", [])
+                if segments and audio_url:
+                    audio_storage_service.store_audio_segments(
+                        transcription_id=transcription_id,
+                        segments=segments,
+                        audio_url=audio_url,
+                    )
+                    logger.info(f"Stored {len(segments)} audio segments")
+                    
+        except Exception as e:
+            logger.error(f"Ledger creation failed (non-fatal): {e}")
+    
+    # ── Clean up uploaded file ────────────────────────────────────────
+    try:
+        os.remove(file_path)
+        logger.info(f"Cleaned up temp file: {file_path}")
+    except OSError as e:
+        logger.warning(f"Could not delete temp file: {e}")
 
     return ProcessResponse(
         session_id=session_id,

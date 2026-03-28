@@ -100,7 +100,7 @@ def build_pipeline() -> StateGraph:
     # retrieval → decision
     graph.add_edge("retrieval_node", "decision_node")
 
-    # decision → END
+    # decision → END (ledger creation happens in main.py after transcription is stored)
     graph.add_edge("decision_node", END)
 
     compiled = graph.compile()

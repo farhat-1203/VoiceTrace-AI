@@ -1,12 +1,12 @@
 """
 VoiceTrace AI — Embedding Service (API mode)
-Uses qdrant-client's built-in FastEmbed (BAAI/bge-small-en-v1.5).
+Uses FastEmbed with multilingual-e5-small for Hindi/English/Hinglish support.
 
-Why FastEmbed instead of sentence-transformers?
-  • Ships with qdrant-client — zero extra install
-  • ONNX runtime, ~40 MB model, runs on CPU with no torch required
-  • 384-dim output — small Qdrant collection, fast retrieval
-  • Quantized INT8 — ~3ms per embed on CPU
+Model: intfloat/multilingual-e5-small
+  • 384-dim output (same as bge-small)
+  • Supports 100+ languages including Hindi
+  • ONNX runtime, ~40 MB model, runs on CPU
+  • Requires "query:" and "passage:" prefixes for optimal accuracy
 
 Mode guard:
   "api"   → FastEmbed (CPU, no GPU needed)
@@ -52,24 +52,49 @@ class EmbeddingService:
             )
 
         self._model = TextEmbedding(model_name=EMBEDDING_MODEL)
-        logger.info("FastEmbed model loaded ✓")
+        logger.info("FastEmbed model loaded ✓ (multilingual-e5-small with Hindi support)")
 
     def embed(self, text: str) -> list[float]:
         """
         Generate a query embedding vector.
-        FastEmbed handles the E5 prefix internally for supported models.
+        
+        CRITICAL: multilingual-e5 models REQUIRE "query:" prefix for search queries.
+        Without it, accuracy drops ~15%.
+        
+        Use this for:
+        - Searching similar memories
+        - VAPI queries
+        - Vendor questions
         """
         self._load()
-        vectors = list(self._model.embed([text]))
+        
+        # Add required prefix for multilingual-e5 models
+        prefixed_text = f"query: {text}"
+        
+        vectors = list(self._model.embed([prefixed_text]))
         vector: np.ndarray = vectors[0]
         return vector.tolist()
 
     def embed_passage(self, text: str) -> list[float]:
         """
         Generate a passage (storage) embedding vector.
-        For bge-small, query and passage embeddings use the same model.
+        
+        CRITICAL: multilingual-e5 models REQUIRE "passage:" prefix for documents.
+        Without it, accuracy drops ~15%.
+        
+        Use this for:
+        - Storing ledger entries
+        - Storing memories
+        - Storing transcriptions
         """
-        return self.embed(text)
+        self._load()
+        
+        # Add required prefix for multilingual-e5 models
+        prefixed_text = f"passage: {text}"
+        
+        vectors = list(self._model.embed([prefixed_text]))
+        vector: np.ndarray = vectors[0]
+        return vector.tolist()
 
     @property
     def dimension(self) -> int:

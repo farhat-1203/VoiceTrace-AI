@@ -31,11 +31,10 @@ QDRANT_URL: str        = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY: str    = os.getenv("QDRANT_API_KEY", "")
 QDRANT_COLLECTION: str = "long_term_memory"
 
-# Embedding dimensions for the API-based embedding strategy.
-# Groq does not provide embeddings; we use Qdrant's FastEmbed (built-in)
-# or a small API. We keep EMBEDDING_DIM for Qdrant collection compatibility.
-EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
-EMBEDDING_DIM: int   = 384   # bge-small-en output size
+# Embedding model for multilingual support (Hindi/English/Hinglish)
+# intfloat/multilingual-e5-small: 384 dims, supports 100+ languages
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+EMBEDDING_DIM: int   = 384   # multilingual-e5-small output size
 
 # ── Supabase ─────────────────────────────────────────────────────────
 SUPABASE_URL: str              = os.getenv("SUPABASE_URL", "")

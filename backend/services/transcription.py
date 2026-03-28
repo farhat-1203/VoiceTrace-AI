@@ -90,8 +90,8 @@ class TranscriptionService:
                     headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
                     data={
                         "model":            GROQ_WHISPER_MODEL,
-                        "response_format":  "verbose_json",  # includes segments
-                        "language":         "en",            # set None for auto-detect
+                        "response_format":  "verbose_json",  # includes segments + language
+                        # Remove language param to enable auto-detection
                         "temperature":      "0",
                     },
                     files={"file": (os.path.basename(audio_path), audio_file, mime)},
@@ -105,7 +105,7 @@ class TranscriptionService:
         payload = response.json()
 
         full_text: str = payload.get("text", "").strip()
-        language: str  = payload.get("language", "en")
+        language: str  = payload.get("language", "unknown")
 
         # verbose_json returns segments; fall back to single-segment if missing
         raw_segments: list[dict] = payload.get("segments", [])
@@ -118,16 +118,58 @@ class TranscriptionService:
             for seg in raw_segments
         ] or [{"start": 0.0, "end": 0.0, "text": full_text}]
 
+        # Detect if it's Hinglish (code-mixed Hindi-English)
+        detected_language = self._detect_language_type(full_text, language)
+
         logger.info(
             f"Groq Whisper done — {len(segments)} segments, "
-            f"lang={language}, chars={len(full_text)}"
+            f"detected_lang={detected_language}, chars={len(full_text)}"
         )
 
         return {
             "text":     full_text,
             "segments": segments,
-            "language": language,
+            "language": detected_language,
         }
+
+    def _detect_language_type(self, text: str, whisper_lang: str) -> str:
+        """
+        Detect if text is Hindi, English, or Hinglish (code-mixed).
+        
+        Args:
+            text: Transcribed text
+            whisper_lang: Language detected by Whisper (e.g., 'hi', 'en')
+        
+        Returns:
+            'hindi', 'english', 'hinglish', or 'other'
+        """
+        if not text:
+            return "unknown"
+        
+        # Count Hindi (Devanagari) and English (Latin) characters
+        hindi_chars = sum(1 for c in text if '\u0900' <= c <= '\u097F')
+        english_chars = sum(1 for c in text if c.isalpha() and c.isascii())
+        total_alpha = hindi_chars + english_chars
+        
+        if total_alpha == 0:
+            return whisper_lang if whisper_lang in ('hi', 'en') else "unknown"
+        
+        hindi_ratio = hindi_chars / total_alpha
+        english_ratio = english_chars / total_alpha
+        
+        # Hinglish: significant mix of both scripts
+        if hindi_ratio > 0.2 and english_ratio > 0.2:
+            return "hinglish"
+        elif hindi_ratio > 0.5:
+            return "hindi"
+        elif english_ratio > 0.5:
+            return "english"
+        elif whisper_lang == "hi":
+            return "hindi"
+        elif whisper_lang == "en":
+            return "english"
+        else:
+            return "hinglish"  # Default for Indian context
 
 
 # Module-level singleton

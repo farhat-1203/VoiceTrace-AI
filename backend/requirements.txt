@@ -29,3 +29,9 @@ pydantic==2.10.4
 loguru==0.7.3
 aiofiles==24.1.0
 numpy==1.26.4        # qdrant-client needs it for vector ops
+
+# ── AWS S3 (optional - for audio storage) ───────────────────────────
+boto3==1.35.0
+
+# ── PDF Generation (optional - for income statements) ────────────────
+weasyprint==62.3

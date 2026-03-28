@@ -32,6 +32,10 @@ services:
       - .env
     environment:
       - BACKEND_URL=http://backend:8000
+      # These are passed from .env but explicitly listed for clarity
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - FRONTEND_URL=http://localhost:8501
     depends_on:
       - backend
     restart: unless-stopped

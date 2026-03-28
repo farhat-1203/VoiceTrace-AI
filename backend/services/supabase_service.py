@@ -80,6 +80,7 @@ class SupabaseService:
         formatted_memory: str | None = None,
         retrieved_memories: list | None = None,
         final_response: str = "",
+        detected_language: str = "unknown",
         error: str | None = None,
         processing_time_secs: float = 0.0,
     ) -> Optional[str]:
@@ -105,6 +106,7 @@ class SupabaseService:
             "formatted_memory": formatted_memory,
             "retrieved_memories": retrieved_memories or [],
             "final_response": final_response,
+            "detected_language": detected_language,
             "error": error,
             "processing_time_secs": processing_time_secs,
         }
@@ -113,7 +115,7 @@ class SupabaseService:
             result = self._client.table("transcriptions").insert(row).execute()
             inserted = result.data[0] if result.data else {}
             row_id = inserted.get("id")
-            logger.info(f"Stored transcription {row_id} for user {user_id}")
+            logger.info(f"Stored transcription {row_id} for user {user_id} (lang={detected_language})")
             return row_id
         except Exception as e:
             logger.error(f"Failed to store transcription: {e}")
