@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import type { Session } from '@supabase/supabase-js';
+
 import HomeScreen from '../screens/HomeScreen';
 import LedgerScreen from '../screens/LedgerScreen';
 import InsightsScreen from '../screens/InsightsScreen';
@@ -9,7 +11,12 @@ import ReportScreen from '../screens/ReportScreen';
 
 const Tab = createBottomTabNavigator();
 
-export default function MainTabNavigator({ onSignOut }: { onSignOut: () => void }) {
+interface Props {
+  session: Session;
+  onSignOut: () => void;
+}
+
+export default function MainTabNavigator({ session, onSignOut }: Props) {
   return (
     <Tab.Navigator
       screenOptions={{
@@ -30,7 +37,7 @@ export default function MainTabNavigator({ onSignOut }: { onSignOut: () => void 
         name="Home"
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <View className={`items-center justify-center ${focused ? "w-[44px] h-[44px] rounded-full bg-[#EAF9F0]" : ""}`}>
+            <View className={`items-center justify-center ${focused ? 'w-[44px] h-[44px] rounded-full bg-[#EAF9F0]' : ''}`}>
               <MaterialCommunityIcons name="microphone-outline" size={24} color={color} />
             </View>
           ),
@@ -39,14 +46,13 @@ export default function MainTabNavigator({ onSignOut }: { onSignOut: () => void 
           ),
         }}
       >
-        {() => <HomeScreen onSignOut={onSignOut} />}
+        {() => <HomeScreen session={session} onSignOut={onSignOut} />}
       </Tab.Screen>
       <Tab.Screen
         name="Ledger"
-        component={LedgerScreen}
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <View className={`items-center justify-center ${focused ? "w-[44px] h-[44px] rounded-full bg-[#EAF9F0]" : ""}`}>
+            <View className={`items-center justify-center ${focused ? 'w-[44px] h-[44px] rounded-full bg-[#EAF9F0]' : ''}`}>
               <Ionicons name="book-outline" size={24} color={color} />
             </View>
           ),
@@ -54,13 +60,15 @@ export default function MainTabNavigator({ onSignOut }: { onSignOut: () => void 
             <Text className={`text-[12px] mt-1 ${focused ? 'font-bold text-[#10A150]' : 'font-semibold text-[#7E8A9A]'}`}>Ledger</Text>
           ),
         }}
-      />
+      >
+        {() => <LedgerScreen />}
+      </Tab.Screen>
       <Tab.Screen
         name="Insights"
         component={InsightsScreen}
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <View className={`items-center justify-center ${focused ? "w-[44px] h-[44px] rounded-full bg-[#EAF9F0]" : ""}`}>
+            <View className={`items-center justify-center ${focused ? 'w-[44px] h-[44px] rounded-full bg-[#EAF9F0]' : ''}`}>
               <MaterialCommunityIcons name="chart-line" size={24} color={color} />
             </View>
           ),
@@ -74,7 +82,7 @@ export default function MainTabNavigator({ onSignOut }: { onSignOut: () => void 
         component={ReportScreen}
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <View className={`items-center justify-center ${focused ? "w-[44px] h-[44px] rounded-full bg-[#EAF9F0]" : ""}`}>
+            <View className={`items-center justify-center ${focused ? 'w-[44px] h-[44px] rounded-full bg-[#EAF9F0]' : ''}`}>
               <Ionicons name="document-text-outline" size={24} color={color} />
             </View>
           ),

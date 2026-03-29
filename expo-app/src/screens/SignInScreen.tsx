@@ -1,70 +1,220 @@
-import React from 'react';
-import { View, Text, SafeAreaView, TouchableOpacity, Image, StatusBar } from 'react-native';
+/**
+ * VoiceTrace AI — Sign In / Sign Up Screen
+ *
+ * Real Supabase email + password authentication.
+ * Toggles between "Sign In" and "Create Account" modes.
+ */
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  SafeAreaView,
+  TouchableOpacity,
+  TextInput,
+  StatusBar,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from 'react-native';
+import type { Session } from '@supabase/supabase-js';
+import { signIn, signUp } from '../services/supabaseClient';
 
-export default function SignInScreen({ onSignIn }: { onSignIn: () => void }) {
+interface Props {
+  onSignIn: (session: Session) => void;
+}
+
+export default function SignInScreen({ onSignIn }: Props) {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleAuth = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Missing fields', 'Please enter your email and password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (mode === 'signin') {
+        const { data, error } = await signIn(email.trim(), password);
+        if (error) throw error;
+        if (data.session) onSignIn(data.session);
+      } else {
+        const { data, error } = await signUp(email.trim(), password);
+        if (error) throw error;
+        if (data.session) {
+          onSignIn(data.session);
+        } else {
+          Alert.alert(
+            'Account Created',
+            'Please check your email to confirm your account, then sign in.',
+          );
+          setMode('signin');
+        }
+      }
+    } catch (err: any) {
+      Alert.alert(
+        mode === 'signin' ? 'Sign In Failed' : 'Sign Up Failed',
+        err.message || 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <SafeAreaView className="flex-1 bg-white mt-40">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
       <StatusBar barStyle="dark-content" />
-      <View className="flex-1 px-8 justify-center">
-        
-        {/* Main Content Container - Centered on screen */}
-        <View className="items-center mb-12">
-          
-          {/* Visual Icon */}
-          <View className="relative items-center justify-center mb-10">
-            <View className="w-60 h-60 rounded-full bg-[#E6F3E6] absolute" />
-            <View className="w-44 h-44 rounded-full bg-[#CDE5CD] absolute" />
-            <View className="w-28 h-28 rounded-full bg-[#0F761B] items-center justify-center shadow-xl shadow-green-200">
-               {/* Minimalist Mic Graphic */}
-               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                   {[10, 20, 32, 20, 32, 20, 10].map((h, i) => (
-                                     <View key={i} style={{
-                                       width: 5, height: h, borderRadius: 3,
-                                       backgroundColor: '#FFF', marginHorizontal: 2.5,
-                                     }} />
-                                   ))}
-                                 </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ flex: 1, paddingHorizontal: 32, justifyContent: 'center', paddingTop: 60 }}>
+
+            {/* ── Logo / Brand ──────────────────────────────────── */}
+            <View style={{ alignItems: 'center', marginBottom: 48 }}>
+              {/* Concentric circles with waveform icon */}
+              <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+                <View style={{ width: 200, height: 200, borderRadius: 100, backgroundColor: '#E6F3E6', position: 'absolute' }} />
+                <View style={{ width: 155, height: 155, borderRadius: 78, backgroundColor: '#CDE5CD', position: 'absolute' }} />
+                <View style={{
+                  width: 110, height: 110, borderRadius: 55,
+                  backgroundColor: '#0F761B',
+                  alignItems: 'center', justifyContent: 'center',
+                  shadowColor: '#0F761B', shadowOpacity: 0.4, shadowRadius: 16, elevation: 8,
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {[10, 20, 32, 20, 32, 20, 10].map((h, i) => (
+                      <View key={i} style={{
+                        width: 5, height: h, borderRadius: 3,
+                        backgroundColor: '#FFF', marginHorizontal: 2.5,
+                      }} />
+                    ))}
+                  </View>
+                </View>
+              </View>
+
+              <Text style={{ fontSize: 36, fontWeight: '900', color: '#101828', letterSpacing: -0.5 }}>
+                VoiceTrace
+              </Text>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#0F761B', marginTop: 4 }}>
+                Speak. Track. Grow.
+              </Text>
+              <Text style={{ fontSize: 14, color: '#667085', marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+                Record your daily sales in Hindi or Hinglish{'\n'}without ever typing.
+              </Text>
             </View>
-          </View>
 
-          {/* Branding & Tagline Grouped */}
-          <Text className="text-4xl font-black tracking-tight text-slate-900 mb-2 mt-8">
-            VoiceTrace
-          </Text>
-          <Text className="text-xl font-bold text-green-800">
-            Speak. Track. Grow.
-          </Text>
-          <Text className="text-[15px] leading-6 text-slate-500 mt-4 text-center px-6">
-            Record your daily sales in Hindi or Hinglish without ever typing.
-          </Text>
-        </View>
+            {/* ── Mode Toggle ───────────────────────────────────── */}
+            <View style={{
+              flexDirection: 'row', backgroundColor: '#F3F4F6',
+              borderRadius: 12, padding: 4, marginBottom: 28,
+            }}>
+              {(['signin', 'signup'] as const).map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setMode(m)}
+                  style={{
+                    flex: 1, paddingVertical: 10, borderRadius: 10,
+                    backgroundColor: mode === m ? '#fff' : 'transparent',
+                    alignItems: 'center',
+                    shadowColor: mode === m ? '#000' : 'transparent',
+                    shadowOpacity: mode === m ? 0.06 : 0,
+                    shadowRadius: 4, elevation: mode === m ? 2 : 0,
+                  }}
+                >
+                  <Text style={{
+                    fontWeight: '700', fontSize: 14,
+                    color: mode === m ? '#101828' : '#6B7280',
+                  }}>
+                    {m === 'signin' ? 'Sign In' : 'Create Account'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
-        {/* Action Section - Moved slightly up from the bottom */}
-        <View className="w-full mt-4">
-          <TouchableOpacity
-            onPress={onSignIn}
-            activeOpacity={0.8}
-            className="flex-row items-center justify-center bg-white border border-slate-200 rounded-2xl py-4 shadow-sm active:bg-slate-50"
-          >
-            <Image 
-              source={require('../assets/googleicon.png')} 
-              style={{ width: 22, height: 22 }}
-              resizeMode="contain"
-            />
-            <Text className="text-lg font-semibold text-slate-700 ml-4">
-              Continue with Google
+            {/* ── Email Input ───────────────────────────────────── */}
+            <View style={{ marginBottom: 14 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 }}>
+                Email
+              </Text>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                style={{
+                  borderWidth: 1.5, borderColor: '#E5E7EB',
+                  borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
+                  fontSize: 15, color: '#101828', backgroundColor: '#FAFAFA',
+                }}
+              />
+            </View>
+
+            {/* ── Password Input ────────────────────────────────── */}
+            <View style={{ marginBottom: 28 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 }}>
+                Password
+              </Text>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder={mode === 'signup' ? 'Min. 6 characters' : '••••••••'}
+                placeholderTextColor="#9CA3AF"
+                secureTextEntry
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                style={{
+                  borderWidth: 1.5, borderColor: '#E5E7EB',
+                  borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
+                  fontSize: 15, color: '#101828', backgroundColor: '#FAFAFA',
+                }}
+              />
+            </View>
+
+            {/* ── Submit Button ─────────────────────────────────── */}
+            <TouchableOpacity
+              onPress={handleAuth}
+              disabled={loading}
+              activeOpacity={0.85}
+              style={{
+                backgroundColor: '#0F761B',
+                borderRadius: 16, paddingVertical: 16,
+                alignItems: 'center', justifyContent: 'center',
+                shadowColor: '#0F761B', shadowOpacity: 0.35,
+                shadowRadius: 12, elevation: 6,
+              }}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>
+                  {mode === 'signin' ? 'Sign In' : 'Create Account'}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* ── Legal ─────────────────────────────────────────── */}
+            <Text style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 20, lineHeight: 16 }}>
+              By continuing, you agree to our{' '}
+              <Text style={{ color: '#6B7280', fontWeight: '700' }}>Terms of Service</Text>
+              {' '}and{' '}
+              <Text style={{ color: '#6B7280', fontWeight: '700' }}>Privacy Policy</Text>
             </Text>
-          </TouchableOpacity>
-          
-          <Text className="text-center text-[11px] text-slate-400 mt-5 px-10 leading-4">
-            By continuing, you agree to our 
-            <Text className="text-slate-500 font-bold"> Terms of Service </Text> 
-            and 
-            <Text className="text-slate-500 font-bold"> Privacy Policy</Text>
-          </Text>
-        </View>
 
-      </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

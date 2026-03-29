@@ -382,5 +382,96 @@ class VAPIService:
             }
 
 
+    def get_user_display_name(self, user_id: str, user_metadata: dict | None = None) -> str:
+        """
+        Resolve a human-readable name for the vendor.
+
+        Priority:
+          1. user_metadata['full_name']  (set during Google/email sign-up)
+          2. user_metadata['name']
+          3. First part of email address
+          4. Generic fallback
+        """
+        if user_metadata:
+            name = (
+                user_metadata.get("full_name")
+                or user_metadata.get("name")
+                or user_metadata.get("display_name")
+                or ""
+            )
+            if name:
+                # Return first name only — friendlier in Hindi conversation
+                return name.strip().split()[0]
+
+        # Try fetching from Supabase profiles table if it exists
+        try:
+            result = (
+                supabase_service._client
+                .table("profiles")
+                .select("full_name, display_name")
+                .eq("id", user_id)
+                .single()
+                .execute()
+            )
+            if result.data:
+                name = result.data.get("full_name") or result.data.get("display_name") or ""
+                if name:
+                    return name.strip().split()[0]
+        except Exception:
+            pass  # profiles table may not exist yet
+
+        return ""  # caller will handle empty → agent asks for name
+
+    def build_post_processing_context(
+        self,
+        extracted_data: dict,
+        confidence_scores: dict,
+        trigger_reason: str,
+        vendor_name: str,
+        transcription_id: str,
+    ) -> dict:
+        """
+        Package all pipeline outputs into the context dict that the
+        VAPI session/start endpoint injects into the dynamic system prompt.
+        """
+        items = extracted_data.get("items_sold", [])
+        expenses = extracted_data.get("expenses", [])
+        mood_score = extracted_data.get("mood_score", 3)
+        sentiment = extracted_data.get("sentiment", "neutral")
+        stock_outs = extracted_data.get("stock_out_mentions", [])
+
+        low_confidence_items = [
+            items[int(k.split("_")[1])]
+            for k, v in confidence_scores.items()
+            if v < 0.7 and int(k.split("_")[1]) < len(items)
+        ]
+
+        total_revenue = sum(
+            (i.get("total_amount") or 0) for i in items
+        )
+        total_expenses = sum(
+            (e.get("amount") or 0) for e in expenses
+        )
+
+        return {
+            "vendor_name": vendor_name,
+            "transcription_id": transcription_id,
+            "trigger_reason": trigger_reason,
+            "mood_score": mood_score,
+            "sentiment": sentiment,
+            "total_revenue": total_revenue,
+            "total_expenses": total_expenses,
+            "net_profit": total_revenue - total_expenses,
+            "items_count": len(items),
+            "items": items,
+            "expenses": expenses,
+            "low_confidence_items": low_confidence_items,
+            "stock_out_mentions": stock_outs,
+            "needs_clarification": len(low_confidence_items) > 0,
+            "mood_trigger_reason": extracted_data.get("mood_trigger_reason", ""),
+        }
+
+
 # Module-level singleton
 vapi_service = VAPIService()
+
